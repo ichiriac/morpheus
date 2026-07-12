@@ -14,6 +14,9 @@ set -euo pipefail
 # montée en qualité : Qwen/Qwen3-32B-GPTQ-Int8.
 MODEL="${MODEL:-Qwen/Qwen3-32B-AWQ}"
 PORT="${PORT:-8000}"
+# Cache HF sur le volume PERSISTANT /workspace (pas l'overlay / éphémère de RunPod) :
+# garantit qu'un redémarrage ne re-télécharge PAS les ~19 Go de poids. Surchargeable.
+export HF_HOME="${HF_HOME:-/workspace/.hf-cache}"
 # 48 Go : 32768 confortable. Sur 24 Go, exporter MAX_LEN=16384 pour éviter l'OOM du cache KV.
 MAX_LEN="${MAX_LEN:-32768}"
 GPU_UTIL="${GPU_UTIL:-0.92}"
@@ -41,11 +44,13 @@ else
   exit 127
 fi
 
-# Quantization auto-détectée par vLLM pour les repos *-AWQ / *-GPTQ.
+# Quantization pour les repos *-AWQ / *-GPTQ. On force les kernels *Marlin* (Ampere+),
+# bien plus rapides que awq/gptq « legacy » — sinon vLLM avertit « awq quantization is not
+# fully optimized yet » et le débit s'effondre (~3 tok/s vs 20-40 tok/s en marlin sur A40).
 QUANT_ARG=()
 case "$MODEL" in
-  *AWQ*)  QUANT_ARG=(--quantization awq) ;;
-  *GPTQ*) QUANT_ARG=(--quantization gptq) ;;
+  *AWQ*)  QUANT_ARG=(--quantization awq_marlin) ;;
+  *GPTQ*) QUANT_ARG=(--quantization gptq_marlin) ;;
 esac
 
 exec "${RUNNER[@]}" \
