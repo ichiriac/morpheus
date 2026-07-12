@@ -33,7 +33,39 @@ Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Q
 - **Code testé sans GPU** : **16 tests verts + 2 skip torch**. Boucle fermée MPC + LLM-as-world-model,
   env mock, métrique réussite-vs-tours, connecteurs LLM (stub/vLLM/Anthropic), pipeline JEPA
   (data/encoders/model/losses/train), adaptateur τ²-bench (squelette `TODO(tau2)`).
-- **Pas encore fait sur GPU** : run avec vrai Qwen, câblage τ²-bench, entraînement JEPA réel, wiring JepaWorldModel.
+- **Piste A FAITE sur GPU (session 2026-07-12)** : Qwen3-32B-AWQ servi par vLLM sur A40,
+  `check-llm` = OUI ✅, sanity baseline mock 5 tâches = 100 %. WM smoke en cours (1 tâche).
+- **Pas encore fait sur GPU** : run world-model complet, câblage τ²-bench, entraînement JEPA réel, wiring JepaWorldModel.
+
+## ⚠️ Journal d'environnement (session 2026-07-12) — NE PAS re-découvrir
+
+Le pod A40 a un **driver CUDA 12.8** (`nvidia-smi` → 570.211.01). Pièges rencontrés et résolus :
+
+1. **`vllm>=0.6.0` installe vLLM 0.25 → torch cu130 (CUDA 13)** → crash `NVIDIA driver too old (12080)`.
+   **Fix** : pile figée en `vllm==0.10.2` + `torch==2.8.0+cu128` (match exact driver 12.8) :
+   ```bash
+   pip install "vllm==0.10.2" --extra-index-url https://download.pytorch.org/whl/cu128
+   ```
+2. **`transformers 5.x` casse le tokenizer de vLLM 0.10.2** (`Qwen2Tokenizer has no attribute
+   all_special_tokens_extended`). **Fix** : `pip install "transformers>=4.55.2,<5"` (→ 4.57.6).
+   ⚠️ toute install qui tire `transformers` (ex. `[jepa]`/sentence-transformers) doit garder `<5`.
+3. **AWQ lent (~3 tok/s !)** : le script forçait `--quantization awq` (kernel legacy). **Corrigé
+   dans `scripts/serve_qwen_vllm.sh`** → `awq_marlin` (~27 tok/s, ×9). Idem GPTQ → `gptq_marlin`.
+4. **Cache HF** : `HF_HOME=/workspace/.hf-cache` (volume PERSISTANT) est maintenant gravé dans le
+   script. Sinon HF retombe sur l'overlay `/` éphémère et **re-télécharge 19 Go** à chaque restart.
+   Le `.venv` et les poids (19 Go) sont sur `/workspace` → un restart ne re-télécharge RIEN.
+5. **Redémarrer le serveur demain** (download-free, ~1 min de load + CUDA graphs) :
+   ```bash
+   cd /workspace/morpheus && source .venv/bin/activate
+   MODEL=Qwen/Qwen3-32B-AWQ bash scripts/serve_qwen_vllm.sh        # HF_HOME + marlin déjà gérés
+   ```
+6. **Coût du world-model** : ~35 appels LLM/tour (k=4 × horizon=3, avec `propose` internes à
+   512 tok). ⇒ **~3 min/tour, ~10-25 min/tâche**. Le baseline nu = 1 appel/tour (~30 s/tâche).
+   Pour itérer vite : garder peu de tâches, ou baisser `k_candidates`/`horizon`, ou `max_tokens`
+   du world-model. Le vrai run 30 tâches se fera sur τ²-bench, pas sur le mock.
+
+`scripts/serve_qwen_vllm.sh` (marlin + HF_HOME) est **déjà commité** (`006abf5`). Reste juste ce
+`TODO.md` à committer.
 
 ## Décisions figées (ne pas rediscuter)
 
@@ -60,15 +92,17 @@ bash scripts/serve_qwen_vllm.sh
 morpheus check-llm --config configs/qwen_local.yaml            # doit finir par "OUI ✅"
 ```
 
-- [ ] `check-llm` OK : la politique propose `authenticate_user` en format parsable.
-      Si Qwen dévie → lire le bloc « SORTIE BRUTE », ajuster `enable_thinking`,
-      `policy.temperature`, ou le prompt `_SYS` dans `src/morpheus/agents/policy.py`.
-- [ ] Sanity pipeline sur le mock avec Qwen réel :
+- [x] `check-llm` OK (2026-07-12) : format `ACTION/ARGS` parsable, pas de bloc `<think>`,
+      `authenticate_user` bien proposé en 1er. ⚠️ ARGS = placeholders `{"clef":"valeur"}` —
+      sans effet sur le mock, mais **à corriger dans `_SYS` avant τ²-bench** (args réels requis).
+- [x] Sanity baseline mock (2026-07-12) : `--no-world-model --tasks 5` = **100 %** (~2 min).
+      Boucle MPC end-to-end validée avec Qwen réel.
+- [ ] **REPRISE** : finir la sanity world-model (le run 1-tâche a été lancé en fin de session) :
       ```bash
-      morpheus run --config configs/qwen_local.yaml --no-world-model --out runs/qwen_baseline
-      morpheus run --config configs/qwen_local.yaml --out runs/qwen_wm
+      morpheus run --config configs/qwen_local.yaml --tasks 5 --out runs/qwen_wm   # ~1-2h, cf. §6 journal
       ```
-      (Sur le mock, baseline ≈ world-model : normal, trop simple — la vraie mesure c'est τ²-bench.)
+      (Sur le mock, baseline ≈ world-model : normal, trop simple — la vraie mesure c'est τ²-bench.
+      Ne PAS y passer du temps : 1-2 tâches suffisent à valider, puis attaquer l'étape 2.)
 
 ## Piste B — smoke + entraînement JEPA (Phase 2)   → specs/05-jepa-training.md
 
