@@ -16,13 +16,13 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader   # ← choisir l
 
 | VRAM | Commande serveur (terminal 1, tmux) |
 |---|---|
-| **48 Go (RTX A6000)** — GPU retenu | `bash scripts/serve_qwen_vllm.sh` (défaut : Qwen3-32B-AWQ, MAX_LEN 32768) |
+| **48 Go (NVIDIA A40)** — GPU retenu | `bash scripts/serve_qwen_vllm.sh` (défaut : Qwen3-32B-AWQ, MAX_LEN 32768) |
 | 48 Go, montée en qualité | `MODEL=Qwen/Qwen3-32B-GPTQ-Int8 bash scripts/serve_qwen_vllm.sh` (~34 Go, plus lent) |
 | 24 Go (RTX 4090) | `MAX_LEN=16384 bash scripts/serve_qwen_vllm.sh` |
 | 80 Go (A100/H100) | `MODEL=Qwen/Qwen3-32B bash scripts/serve_qwen_vllm.sh` (bf16, sans quant) |
 
-> **A6000 = Ampere** : pas de FP8 natif → rester en **AWQ/GPTQ entier**. bf16 32B (~64 Go) ne
-> rentre pas dans 48 Go. Démarrer AWQ 4-bit (débit) ; passer GPTQ 8-bit si le jugement long est juste.
+> **A40 = Ampere (GA102), 48 Go** : pas de FP8 natif → rester en **AWQ/GPTQ entier**. bf16 32B
+> (~64 Go) ne rentre pas dans 48 Go. Démarrer AWQ 4-bit (débit) ; passer GPTQ 8-bit si le jugement long est juste.
 
 Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Qwen)** et
 **B (smoke JEPA)**. Elles ne se bloquent pas.

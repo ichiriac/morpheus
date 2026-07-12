@@ -19,21 +19,21 @@
    └─────────────────────────────┘
 ```
 
-> **DÉCISION FIGÉE** : moteur **vLLM** + **GPU retenu : RTX A6000 48 Go**, modèle
+> **DÉCISION FIGÉE** : moteur **vLLM** + **GPU retenu : NVIDIA A40 48 Go**, modèle
 > **Qwen3-32B-AWQ** avec `MAX_LEN=32768` (gros cache KV, batch large → bon pour les rafales MPC).
 
 ## Choix du GPU / modèle
 
 | Modèle | VRAM (approx.) | GPU | Notes |
 |---|---|---|---|
-| `Qwen/Qwen3-32B-AWQ` (4-bit) | ~20-22 Go + KV | **A6000 48G (retenu)** / RTX 4090 24G | **défaut**. Sur 48 Go : `MAX_LEN=32768`, débit élevé |
-| `Qwen/Qwen3-32B-GPTQ-Int8` (8-bit) | ~34 Go + KV | A6000 48G | montée en qualité si le jugement long est juste (plus lent) |
+| `Qwen/Qwen3-32B-AWQ` (4-bit) | ~20-22 Go + KV | **A40 48G (retenu)** / RTX 4090 24G | **défaut**. Sur 48 Go : `MAX_LEN=32768`, débit élevé |
+| `Qwen/Qwen3-32B-GPTQ-Int8` (8-bit) | ~34 Go + KV | A40 48G | montée en qualité si le jugement long est juste (plus lent) |
 | `Qwen/Qwen3-Coder-30B-A3B` | ~18-20 Go (Q4) | 24G / 48G | MoE rapide (3B actifs), orienté coding/tool-use |
 | `Qwen/Qwen3-32B` (bf16) | ~64 Go | A100 80G / H100 | pleine précision — **ne rentre pas** dans 48 Go |
 
-> **A6000 = architecture Ampere → pas de FP8 natif** (FP8 = Ada/Hopper). Rester en **AWQ/GPTQ
-> entier**. Le script auto-détecte AWQ/GPTQ. Démarrer en AWQ 4-bit (débit) ; basculer GPTQ 8-bit
-> seulement si la qualité du raisonnement multi-tours le justifie.
+> **A40 = architecture Ampere (GA102) → pas de FP8 natif** (FP8 = Ada/Hopper). Rester en
+> **AWQ/GPTQ entier**. Le script auto-détecte AWQ/GPTQ. Démarrer en AWQ 4-bit (débit) ; basculer
+> GPTQ 8-bit seulement si la qualité du raisonnement multi-tours le justifie.
 
 ## Procédure
 

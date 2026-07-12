@@ -154,10 +154,10 @@ Sur τ²-bench (puis coding agentique), tracer la **réussite de tâche vs longu
    orthogonale** : optimiser automatiquement le prompt de la politique Qwen contre la métrique
    réussite-vs-tours (à introduire en Phase 1/3, après une baseline). PyTorch reste pour le seul JEPA.
 
-3. **Runtime Qwen** — **FIGÉ : vLLM, GPU retenu RTX A6000 48 Go.** vLLM pour le débit-batching
+3. **Runtime Qwen** — **FIGÉ : vLLM, GPU retenu NVIDIA A40 48 Go.** vLLM pour le débit-batching
    (les rafales d'appels du MPC), l'endpoint OpenAI déjà câblé, et le contrôle propre du thinking
    Qwen3. Modèle : **Qwen3-32B-AWQ** (4-bit) avec `MAX_LEN=32768` (les 48 Go donnent un gros cache
-   KV et un batch large). A6000 = Ampere → **pas de FP8** ; option qualité = GPTQ 8-bit (~34 Go).
+   KV et un batch large). A40 = Ampere → **pas de FP8** ; option qualité = GPTQ 8-bit (~34 Go).
    Détail et table par VRAM : [04-runpod-qwen.md](04-runpod-qwen.md).
 
 ### Encore ouvertes

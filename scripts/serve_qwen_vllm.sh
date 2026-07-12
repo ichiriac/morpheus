@@ -10,7 +10,7 @@
 #   morpheus check-llm --config configs/qwen_local.yaml
 set -euo pipefail
 
-# GPU retenu = RTX A6000 48 Go. Variante débit : Qwen/Qwen3-Coder-30B-A3B ;
+# GPU retenu = NVIDIA A40 48 Go (Ampere). Variante débit : Qwen/Qwen3-Coder-30B-A3B ;
 # montée en qualité : Qwen/Qwen3-32B-GPTQ-Int8.
 MODEL="${MODEL:-Qwen/Qwen3-32B-AWQ}"
 PORT="${PORT:-8000}"
