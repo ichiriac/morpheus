@@ -15,7 +15,9 @@ openai = ["openai>=1.40"]
 anthropic = ["anthropic>=0.40"]
 # Environnement réel de Phase 0/1
 tau2 = ["tau2-bench"]
-dev = ["pytest>=8.0"]
+# Entraînement JEPA (Phase 2) — sur GPU RunPod
+jepa = ["torch>=2.2", "numpy>=1.26", "sentence-transformers>=3.0", "datasets>=2.19"]
+dev = ["pytest>=8.0", "numpy>=1.26"]
 
 [project.scripts]
 morpheus = "morpheus.cli:main"

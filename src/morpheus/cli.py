@@ -34,12 +34,36 @@ def main(argv: list[str] | None = None) -> int:
                          help="valider le branchement LLM + le format de sortie de la politique")
     chk.add_argument("--config", required=True, help="chemin du YAML de config")
 
+    tj = sub.add_parser("train-jepa", help="entraîner le world-model latent JEPA (Phase 2)")
+    tj.add_argument("--config", required=True, help="chemin du YAML JEPA (cf. configs/jepa.yaml)")
+
+    di = sub.add_parser("inspect-data",
+                        help="charger une source de trajectoires et afficher un aperçu normalisé")
+    di.add_argument("--source", required=True, help="synthetic | jsonl:<path> | hf:<name>")
+    di.add_argument("--limit", type=int, default=200)
+    di.add_argument("--alfworld", action="store_true")
+    di.add_argument("--steps-key", default=None)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "check-llm":
         from .diagnostics import check_llm
 
         return check_llm(Config.load(args.config))
+
+    if args.cmd == "train-jepa":
+        from .jepa.train import JepaConfig, train
+
+        train(JepaConfig.load(args.config))
+        return 0
+
+    if args.cmd == "inspect-data":
+        from .jepa.data import describe_records, load_transitions
+
+        trans = load_transitions(args.source, limit=args.limit,
+                                 alfworld=args.alfworld, steps_key=args.steps_key)
+        print(describe_records(trans, k=5))
+        return 0
 
     if args.cmd == "run":
         cfg = Config.load(args.config)

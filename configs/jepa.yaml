@@ -1,0 +1,36 @@
+# Entraînement JEPA (Phase 2). Défaut = synthetic + hashing : tourne SANS téléchargement
+# ni GPU (smoke). Pour un vrai run, basculer source/encoder ci-dessous.
+
+# --- Données ---
+source: synthetic              # smoke. Réel : "hf:Salesforce/APIGen-MT-5k"
+                               #   ALFWorld : source "hf:u-10bei/sft_alfworld_trajectory_dataset"
+                               #     + alfworld: true + steps_key: <clé des étapes>
+hf_split: train
+limit: null                    # ex. 500 pour un run rapide
+n_episodes: 300                # pour source=synthetic
+
+# --- Encodeur (E_state gelé) ---
+encoder: hashing               # smoke. Réel : "sentence_transformer"
+encoder_model: sentence-transformers/all-MiniLM-L6-v2
+enc_dim: 256                   # dim du hashing (ignoré par sentence_transformer)
+
+# --- Modèle ---
+latent_dim: 256
+action_dim: 128
+hidden: 512
+
+# --- Optimisation ---
+epochs: 20
+batch_size: 256
+lr: 0.0003
+weight_decay: 0.0001
+val_frac: 0.1
+seed: 0
+device: auto                   # auto | cpu | cuda
+
+# --- Pertes ---
+w_pred: 1.0
+w_var: 1.0
+w_cov: 0.04
+
+out_dir: checkpoints/jepa

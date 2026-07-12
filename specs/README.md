@@ -13,6 +13,7 @@ Ce dossier documente le contexte et l'architecture cible du projet : construire 
 | [02-benchmark-reference.md](02-benchmark-reference.md) | L'environnement d'évaluation : τ²-bench (figé), noms de modèles réels mi-2026, cibles chiffrées, protocole de mesure, sources. |
 | [03-scaffold.md](03-scaffold.md) | L'état du code : arborescence, démarrage rapide, correspondance code↔specs, ce qui est réel vs stubbé, prochaines étapes. |
 | [04-runpod-qwen.md](04-runpod-qwen.md) | Étape 1 : brancher un vrai Qwen sur RunPod (vLLM) et valider le format de la politique avec `check-llm`. |
+| [05-jepa-training.md](05-jepa-training.md) | Phase 2 : entraîner le world-model latent JEPA — normalisation des trajectoires HF, encodeur gelé, prédicteur + VICReg, `train-jepa`. |
 
 ## Thèse en une phrase
 

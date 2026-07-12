@@ -66,15 +66,27 @@ morpheus check-llm --config configs/qwen_local.yaml            # doit finir par 
       (`kind: anthropic`, `ANTHROPIC_API_KEY`), même sous-ensemble de tâches.
 - [ ] Consigner les courbes (les 3) — c'est le livrable de la Phase 1.
 
-## Étape 4 — JEPA latent (Phase 2, seulement après Phase 1 mesurée)
+## Étape 4 — JEPA latent (Phase 2)   → détail : specs/05-jepa-training.md
 
-- [ ] Collecter les trajectoires (état, action, état') depuis les runs τ²-bench.
-- [ ] Entraîner un petit JEPA (~100M–1B) : `E_state`, `E_action`, prédicteur `P`,
-      cible EMA anti-collapse, PAS de reconstruction du brut.
-- [ ] Remplacer `WorldModel.predict/rollout` par le rollout latent ; `divergence` par
-      `dist(ŝ', E_state(obs))` dans le latent. Interface inchangée (cf. specs/01).
-- [ ] Phase 3 : brancher le **RAG gated par la surprise** (aujourd'hui tracé sans agir,
-      `orchestrator/loop.py` étape 5). Phase 4 : routeur de surprise appris.
+**Pipeline d'entraînement DÉJÀ scaffoldé et testé** (`src/morpheus/jepa/`, 16 tests, 2 skip torch) :
+prédicteur `P` + VICReg (`model.py`/`losses.py`), encodeur gelé (`encoders.py`), normalisation
+des trajectoires HF→`(obs,action,next_obs)` (`data.py`), boucle (`train.py`), CLI
+`morpheus train-jepa` + `morpheus inspect-data`.
+
+- [ ] Sur le pod : `pip install -e ".[jepa]"` (torch + sentence-transformers + datasets).
+- [ ] Smoke : `morpheus train-jepa --config configs/jepa.yaml` (synthetic+hashing, doit
+      converger la perte de prédiction).
+- [ ] **Vérifier la normalisation** d'un vrai dataset AVANT gros run :
+      `morpheus inspect-data --source hf:Salesforce/APIGen-MT-5k --limit 20`
+      (ajuster `from_messages` dans `jepa/data.py` si l'aperçu est faux).
+- [ ] Vrai run : éditer `configs/jepa.yaml` → `source: hf:Salesforce/APIGen-MT-5k`,
+      `encoder: sentence_transformer`, `epochs: 50`. Puis fine-tune sur rollouts τ²-bench
+      (export `to_jsonl` → `source: jsonl:<path>`).
+- [ ] **Wiring** : écrire `JepaWorldModel` (même contrat que `agents/world_model.py`) branché
+      sur `jepa.pt` ; remplacer le proxy Jaccard de `surprise.py` par `1 - cos(ŝ', E_state(obs))`.
+      L'orchestrateur (`loop.py`) ne change pas.
+- [ ] Phase 3 : **RAG gated par la surprise** (aujourd'hui tracé sans agir, `loop.py` étape 5).
+      Phase 4 : routeur de surprise appris.
 
 ## Commandes utiles
 
