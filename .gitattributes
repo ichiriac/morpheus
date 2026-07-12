@@ -1,0 +1,14 @@
+# Normalise les fins de ligne. Les scripts shell DOIVENT rester en LF pour tourner sur
+# Linux (RunPod) — sinon `/usr/bin/env: bad interpreter`.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+
+# Binaires
+*.webp binary
+*.png binary
+*.jpg binary
+*.pt binary

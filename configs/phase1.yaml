@@ -1,0 +1,33 @@
+# Phase 1 — LLM-as-world-model, boucle fermée, sur env mock (défaut exécutable sans GPU).
+#
+# Pour passer au vrai Qwen local : mettre policy.kind/world_model.kind = openai + base_url.
+# Pour la ligne de référence Sonnet 4.6 : un profil séparé (voir configs/reference_sonnet.yaml
+#   à créer) avec kind = anthropic.
+
+policy:
+  kind: stub            # -> openai (Qwen3-32B via vLLM) quand le runtime est figé
+  model: stub
+  # base_url: http://localhost:8000/v1
+  temperature: 0.7
+  max_tokens: 512
+
+world_model:
+  kind: stub            # Phase 1 : même LLM que la politique (LLM-as-world-model)
+  model: stub
+  temperature: 0.3
+  max_tokens: 256
+
+orchestrator:
+  k_candidates: 4       # K actions proposées par tour
+  horizon: 3            # H : profondeur du lookahead
+  max_turns: 12         # T_max
+  surprise_threshold: 0.5
+  use_world_model: true # false => baseline ReAct nue (Phase 0)
+
+eval:
+  env: mock             # -> tau2 quand l'adaptateur est câblé
+  domain: retail
+  tasks: 30
+  turn_buckets: [4, 8, 12]
+  seed: 0
+  out_dir: runs/phase1
