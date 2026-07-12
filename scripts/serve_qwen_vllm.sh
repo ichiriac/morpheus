@@ -22,6 +22,25 @@ TP="${TP:-1}"
 
 echo ">> Modèle : $MODEL | port : $PORT | max_len : $MAX_LEN | TP : $TP"
 
+# Si `vllm` n'est pas sur le PATH, auto-activer le venv créé par runpod_setup.sh.
+if ! command -v vllm >/dev/null 2>&1 && [ -f .venv/bin/activate ]; then
+  echo ">> venv détecté, activation de .venv"
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
+
+# Choisir le lanceur : CLI `vllm serve` (récent) ou module python (fallback).
+if command -v vllm >/dev/null 2>&1; then
+  RUNNER=(vllm serve "$MODEL")
+elif python -c "import vllm" >/dev/null 2>&1; then
+  RUNNER=(python -m vllm.entrypoints.openai.api_server --model "$MODEL")
+else
+  echo "!! vLLM introuvable. Lance d'abord :  bash scripts/runpod_setup.sh" >&2
+  echo "   puis :  source .venv/bin/activate  &&  bash scripts/serve_qwen_vllm.sh" >&2
+  echo "   (ou installe dans l'env courant :  pip install vllm)" >&2
+  exit 127
+fi
+
 # Quantization auto-détectée par vLLM pour les repos *-AWQ / *-GPTQ.
 QUANT_ARG=()
 case "$MODEL" in
@@ -29,7 +48,7 @@ case "$MODEL" in
   *GPTQ*) QUANT_ARG=(--quantization gptq) ;;
 esac
 
-exec vllm serve "$MODEL" \
+exec "${RUNNER[@]}" \
   --port "$PORT" \
   --max-model-len "$MAX_LEN" \
   --gpu-memory-utilization "$GPU_UTIL" \
