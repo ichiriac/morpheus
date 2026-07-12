@@ -96,8 +96,18 @@ morpheus run --config configs/phase1.yaml          # tout en stub+mock (sanity)
 export PYTHONIOENCODING=utf-8                       # si sortie console casse (surtout Windows)
 ```
 
+## Décisions figées
+
+- **Bench** : τ²-bench (retail d'abord), réf. supérieure = API Sonnet 4.6.
+- **Stack de boucle** : **maison (Python) + DSPy plus tard**. La boucle MPC reste écrite à la
+  main (loop.py) ; pas de LangGraph. DSPy = couche orthogonale à introduire en Phase 1/3 pour
+  auto-optimiser le prompt de la politique contre la métrique réussite-vs-tours (après baseline).
+- **JEPA** : encodeur gelé (pas H-JEPA en v0) ; orchestrateur-pilote (pas Qwen-pilote).
+
+### À intégrer plus tard (issu de la décision stack)
+- [ ] Phase 1/3 : POC **DSPy** sur `agents/policy.py` — signature propose→actions,
+      optimiseur (BootstrapFewShot/MIPRO) avec la réussite-vs-tours comme métrique.
+
 ## Décisions encore ouvertes
 
 - **Runtime Qwen** : vLLM (défaut) vs llama.cpp ; quantization AWQ/GPTQ sous 32 Go.
-- **Stack de boucle** : rester maison/PyTorch, ou intégrer LangGraph/DSPy pour
-  l'orchestration et réserver PyTorch au seul JEPA.

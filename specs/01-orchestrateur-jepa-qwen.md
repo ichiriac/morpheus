@@ -145,7 +145,15 @@ Sur τ²-bench (puis coding agentique), tracer la **réussite de tâche vs longu
 
 1. **Environnement de départ** — **FIGÉ : τ²-bench** (Sierra), domaine retail d'abord puis telecom. Bench réel, multi-tours, isole exactement le régime 10+ tours. Détails et cibles chiffrées : [02-benchmark-reference.md](02-benchmark-reference.md). Ligne de référence supérieure sur le même sous-ensemble : **API Sonnet 4.6**.
 
+2. **Stack de la boucle** — **FIGÉ : maison (Python), + DSPy plus tard.** La boucle de contrôle
+   MPC reste écrite à la main ([orchestrator/loop.py](../src/morpheus/orchestrator/loop.py))
+   pour les Phases 1→3 : elle EST la contribution (routeur de surprise, RAG gated), épouse le
+   world-model latent (le rollout JEPA n'est pas un « tool call »), reste déterministe et
+   déjà instrumentée (`TraceStep`/tour). **Pas** de LangGraph pour l'instant (paierait seulement
+   avec un besoin de persistance/branchement/produit). **DSPy** est réservé à une **couche
+   orthogonale** : optimiser automatiquement le prompt de la politique Qwen contre la métrique
+   réussite-vs-tours (à introduire en Phase 1/3, après une baseline). PyTorch reste pour le seul JEPA.
+
 ### Encore ouvertes
-2. **Runtime Qwen** : vLLM / llama.cpp / TGI ? quantization (Q4/Q5/AWQ) sous 32 Go ?
-3. **Langage/stack du JEPA et de la boucle** : PyTorch pur, ou framework agent existant (LangGraph, DSPy) pour la boucle et PyTorch pour le seul JEPA ?
+3. **Runtime Qwen** : vLLM / llama.cpp / TGI ? quantization (Q4/Q5/AWQ) sous 32 Go ?
 4. **Faut-il implémenter Phase 1 (LLM-as-WM) avant d'écrire une ligne de JEPA** — recommandé, pour isoler la valeur de la boucle fermée.
