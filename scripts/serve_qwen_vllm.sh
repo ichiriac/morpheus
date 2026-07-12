@@ -10,11 +10,12 @@
 #   morpheus check-llm --config configs/qwen_local.yaml
 set -euo pipefail
 
-# Défaut = cible single-GPU 24 Go (RTX 4090). Variante débit : Qwen/Qwen3-Coder-30B-A3B.
+# GPU retenu = RTX A6000 48 Go. Variante débit : Qwen/Qwen3-Coder-30B-A3B ;
+# montée en qualité : Qwen/Qwen3-32B-GPTQ-Int8.
 MODEL="${MODEL:-Qwen/Qwen3-32B-AWQ}"
 PORT="${PORT:-8000}"
-# 24 Go : le cache KV est juste après le modèle (~20 Go) — baisser à 16384 si OOM.
-MAX_LEN="${MAX_LEN:-16384}"
+# 48 Go : 32768 confortable. Sur 24 Go, exporter MAX_LEN=16384 pour éviter l'OOM du cache KV.
+MAX_LEN="${MAX_LEN:-32768}"
 GPU_UTIL="${GPU_UTIL:-0.92}"
 # Nombre de GPU (tensor parallel). 1 par défaut ; 2 si le modèle ne tient pas sur une carte.
 TP="${TP:-1}"

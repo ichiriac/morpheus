@@ -19,21 +19,21 @@
    └─────────────────────────────┘
 ```
 
-> **DÉCISION FIGÉE** : moteur **vLLM** + cible **RTX 4090 24 Go**, modèle **Qwen3-32B-AWQ**
-> (défaut) ou **Qwen3-Coder-30B-A3B** (MoE, variante débit). Ligne A100 80G bf16 seulement
-> pour débloquer vite sans quant.
+> **DÉCISION FIGÉE** : moteur **vLLM** + **GPU retenu : RTX A6000 48 Go**, modèle
+> **Qwen3-32B-AWQ** avec `MAX_LEN=32768` (gros cache KV, batch large → bon pour les rafales MPC).
 
-## Choix du GPU / modèle (budget < 5000 €, ~32 Go VRAM)
+## Choix du GPU / modèle
 
-| Modèle | VRAM (approx.) | GPU RunPod typique | Notes |
+| Modèle | VRAM (approx.) | GPU | Notes |
 |---|---|---|---|
-| `Qwen/Qwen3-32B` (bf16) | ~64 Go | A100 80G / H100, ou 2×48G | pleine précision, hors carte 32 Go |
-| `Qwen/Qwen3-32B-AWQ` (4-bit) | ~20-22 Go | **RTX 4090 24G / A6000 48G** | **cible single-GPU du projet** |
-| `Qwen/Qwen3-Coder-30B-A3B` | ~18-20 Go (Q4) | RTX 4090 24G | MoE rapide, orienté coding/tool-use |
+| `Qwen/Qwen3-32B-AWQ` (4-bit) | ~20-22 Go + KV | **A6000 48G (retenu)** / RTX 4090 24G | **défaut**. Sur 48 Go : `MAX_LEN=32768`, débit élevé |
+| `Qwen/Qwen3-32B-GPTQ-Int8` (8-bit) | ~34 Go + KV | A6000 48G | montée en qualité si le jugement long est juste (plus lent) |
+| `Qwen/Qwen3-Coder-30B-A3B` | ~18-20 Go (Q4) | 24G / 48G | MoE rapide (3B actifs), orienté coding/tool-use |
+| `Qwen/Qwen3-32B` (bf16) | ~64 Go | A100 80G / H100 | pleine précision — **ne rentre pas** dans 48 Go |
 
-> Pour rester fidèle à la contrainte « une carte < 5000 € », privilégier **Qwen3-32B-AWQ**
-> ou **Qwen3-Coder-30B-A3B** sur une **RTX 4090 24G**. Le script auto-détecte AWQ/GPTQ.
-> Pour juste débloquer le pipeline, une A100 80G en bf16 est plus simple (pas de quant).
+> **A6000 = architecture Ampere → pas de FP8 natif** (FP8 = Ada/Hopper). Rester en **AWQ/GPTQ
+> entier**. Le script auto-détecte AWQ/GPTQ. Démarrer en AWQ 4-bit (débit) ; basculer GPTQ 8-bit
+> seulement si la qualité du raisonnement multi-tours le justifie.
 
 ## Procédure
 
