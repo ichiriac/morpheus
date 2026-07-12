@@ -6,7 +6,7 @@
 
 policy:
   kind: openai
-  model: Qwen/Qwen3-32B          # cf. doc pour variantes AWQ (24 Go) / Qwen3-Coder-30B
+  model: Qwen/Qwen3-32B-AWQ      # cible single-GPU 24 Go. Variante débit : Qwen/Qwen3-Coder-30B-A3B
   base_url: http://localhost:8000/v1
   api_key_env: null               # vLLM local n'exige pas de clé
   temperature: 0.7
@@ -19,7 +19,7 @@ policy:
 
 world_model:
   kind: openai
-  model: Qwen/Qwen3-32B
+  model: Qwen/Qwen3-32B-AWQ
   base_url: http://localhost:8000/v1
   api_key_env: null
   temperature: 0.3

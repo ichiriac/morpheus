@@ -19,6 +19,10 @@
    └─────────────────────────────┘
 ```
 
+> **DÉCISION FIGÉE** : moteur **vLLM** + cible **RTX 4090 24 Go**, modèle **Qwen3-32B-AWQ**
+> (défaut) ou **Qwen3-Coder-30B-A3B** (MoE, variante débit). Ligne A100 80G bf16 seulement
+> pour débloquer vite sans quant.
+
 ## Choix du GPU / modèle (budget < 5000 €, ~32 Go VRAM)
 
 | Modèle | VRAM (approx.) | GPU RunPod typique | Notes |

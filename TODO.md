@@ -103,6 +103,8 @@ export PYTHONIOENCODING=utf-8                       # si sortie console casse (s
   main (loop.py) ; pas de LangGraph. DSPy = couche orthogonale à introduire en Phase 1/3 pour
   auto-optimiser le prompt de la politique contre la métrique réussite-vs-tours (après baseline).
 - **JEPA** : encodeur gelé (pas H-JEPA en v0) ; orchestrateur-pilote (pas Qwen-pilote).
+- **Runtime Qwen** : **vLLM**, cible **RTX 4090 24 Go**, modèle **Qwen3-32B-AWQ** (défaut) ou
+  MoE **Qwen3-Coder-30B-A3B**. Sur 24 Go, baisser `MAX_LEN` (~16k) si OOM cache KV.
 
 ### À intégrer plus tard (issu de la décision stack)
 - [ ] Phase 1/3 : POC **DSPy** sur `agents/policy.py` — signature propose→actions,
@@ -110,4 +112,4 @@ export PYTHONIOENCODING=utf-8                       # si sortie console casse (s
 
 ## Décisions encore ouvertes
 
-- **Runtime Qwen** : vLLM (défaut) vs llama.cpp ; quantization AWQ/GPTQ sous 32 Go.
+- (aucune bloquante — ajuster le modèle/quant selon le GPU réel que RunPod attribue)
