@@ -163,6 +163,30 @@ Longue session de mesure. Beaucoup d'infra + des **résultats négatifs solides*
       checkpoint validé `checkpoints/jepa_tau2_align/jepa.pt` (H1+H2 PASS) **+** `data/tau2_replay/`
       sont désormais **versionnés** (exceptions `.gitignore`) → survivent à la perte du serveur.
 
+### ⏭️ REPRISE session suivante (2026-07-13 soir) — état exact au moment de l'arrêt
+
+- **JEPA-WM retail = validé + opérationnel + versionné.** Gate held-out ✅ (H1 rho +0.634,
+  H2 niveau 0.637>0.545, p≈0). Checkpoint + data committés (survivent à une nouvelle machine).
+- **⛔ TELECOM = IMPASSE (constat de cette session, corrige la note « `--solo` scoring DB fiable »
+  ci-dessus qui est FAUSSE)** : telecom n'est PAS scoré en DB mais en **`ENV_ASSERTION`**, et ses
+  `evaluation_criteria.actions` sont **entrelacées user/assistant** (actions device de l'utilisateur
+  + actions agent) dépendantes de l'état device initial. Le rejeu depuis un env frais **échoue les
+  assertions** (`enable_roaming`→« enabled » vs attendu « already enabled ») → `--solo` produit
+  **0 positif/12**, `--no-solo` 2/12 inexploitables. De plus les tâches telecom-solo font **0–2
+  actions agent** → trop courtes pour H1/H2 (≥3 états) ET courbe vs-tours plate. ⇒ **ne PAS
+  ré-essayer le rejeu telecom** ; le « telecom-solo fiable » vaut pour les runs LIVE, pas le rejeu.
+- **➡️ PROCHAINE ACTION = mesure baseline vs JEPA-WM sur RETAIL** (long-horizon, juge câblé, dialogue
+  `respond_to_user`/`done` OK). Config prête : [`configs/qwen_tau2_jepawm.yaml`](configs/qwen_tau2_jepawm.yaml)
+  (JEPA-WM validé + `tau2_judge_llm` local). Procédure :
+  1. relancer le serveur vLLM (`bash scripts/serve_qwen_vllm.sh`) ;
+  2. `morpheus run --config configs/qwen_tau2_jepawm.yaml --no-world-model --out runs/tau2_retail_baseline`
+  3. `morpheus run --config configs/qwen_tau2_jepawm.yaml               --out runs/tau2_retail_jepawm`
+  4. comparer réussite-vs-tours (buckets 4/8/12). Le run baseline a été LANCÉ puis STOPPÉ (fin de
+     session) → aucun résultat exploitable encore.
+  **⚠️ Caveats à garder en tête** : (a) rollout JEPA 1-pas bruité sous but générique (le classement
+  des candidats peut ne PAS battre le glouton — on mesure pour savoir) ; (b) Qwen-juge-Qwen = mesure
+  indicative (cf. [[tau2-retail-scoring-needs-llm-judge]]).
+
 **État env en fin de session** : le **serveur vLLM est ARRÊTÉ** (je l'ai stoppé pour libérer la VRAM
 et entraîner JEPA sur GPU). Le relancer pour toute mesure LLM (cf. Journal §5). Le checkpoint JEPA et
 le clone `tau2-bench` sont sur `/workspace` (persistants).
