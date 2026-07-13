@@ -67,6 +67,12 @@ class Orchestrator:
         # Manuel LÉGITIME de l'agent (policy du domaine τ²) : injecté au vrai PROPOSER seulement,
         # PAS dans les rollouts imaginés du world-model (prompts K·H bornés).
         sys_ctx = getattr(env, "system_context", lambda: None)()
+        # Scratchpad ReAct : mémoire des couples (action → résultat réel). Sans lui, la politique
+        # n'a que la DERNIÈRE observation et oublie les résultats d'outils passés (amnésie fatale
+        # en tool-use multi-tours). Passé au vrai PROPOSER seulement, PAS aux rollouts imaginés.
+        transcript: list[tuple[str, str]] = []
+        if obs.text:
+            transcript.append(("(ouverture)", obs.text))
         total_reward = 0.0
         trace: list[TraceStep] = []
 
@@ -74,7 +80,9 @@ class Orchestrator:
             state.turn = turn
 
             # 1. PROPOSER
-            candidates = self.policy.propose(state, tools, system_context=sys_ctx)
+            candidates = self.policy.propose(
+                state, tools, system_context=sys_ctx, transcript=transcript
+            )
 
             # 2. LOOKAHEAD (MPC) — sinon baseline nue
             if self.cfg.use_world_model and len(candidates) > 1:
@@ -135,6 +143,7 @@ class Orchestrator:
             # 6. RÉ-ANCRER sur l'état VRAI (jamais sur le prédit)
             state.observation = step.observation
             state.history.append(str(chosen))
+            transcript.append((str(chosen), step.observation.text))
 
             if step.done:
                 return EpisodeResult(

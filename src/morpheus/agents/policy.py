@@ -24,30 +24,48 @@ _SYS = (
     "- Pas de texte autour, pas de numérotation, pas de commentaire."
 )
 
+# Fenêtre de mémoire de la politique (scratchpad ReAct) : nb de couples action→résultat gardés
+# et longueur max de chaque résultat (borne le prompt tout en gardant l'info utile).
+_TRANSCRIPT_TURNS = 8
+_TRANSCRIPT_CHARS = 600
+
 
 class Policy:
     def __init__(self, llm: LLMClient, k: int = 4) -> None:
         self.llm = llm
         self.k = k
 
-    def build_prompt(self, state: State, tools: list[str]) -> str:
+    def build_prompt(self, state: State, tools: list[str],
+                     transcript: list[tuple[str, str]] | None = None) -> str:
+        # `transcript` = derniers couples (action → résultat d'outil/message). Sans lui, la
+        # politique n'aurait que la DERNIÈRE observation et oublierait les résultats passés
+        # (amnésie fatale en tool-use multi-tours). Rendu seulement au vrai PROPOSER.
+        if transcript:
+            lines = "\n".join(
+                f"- {act} → { ' '.join(res.split())[:_TRANSCRIPT_CHARS] }"
+                for act, res in transcript[-_TRANSCRIPT_TURNS:]
+            )
+            hist = f"[HISTORIQUE ACTION→RÉSULTAT]\n{lines}\n[/HISTORIQUE]\n"
+        else:
+            hist = f"Historique récent : {state.history[-5:]}\n"
         return (
             f"[GOAL]{state.goal}[/GOAL]\n"
-            f"[STATE]{state.text}[/STATE]\n"
-            f"Historique récent : {state.history[-5:]}\n"
+            f"[ÉTAT COURANT]{state.text}[/ÉTAT COURANT]\n"
+            f"{hist}"
             f"[CANDIDATE_TOOLS]{', '.join(tools)}[/CANDIDATE_TOOLS]\n"
             f"Propose jusqu'à {self.k} actions candidates distinctes."
         )
 
     def propose(self, state: State, tools: list[str],
-                system_context: str | None = None) -> list[Action]:
-        # `system_context` = manuel LÉGITIME de l'agent (policy du domaine τ²), injecté SEULEMENT
-        # au vrai pas PROPOSER. Les rollouts imaginés du world-model appellent propose() sans lui
-        # → prompts K·H bornés (décision : policy hors du world-model).
+                system_context: str | None = None,
+                transcript: list[tuple[str, str]] | None = None) -> list[Action]:
+        # `system_context` (policy domaine + signatures) et `transcript` (mémoire action→résultat)
+        # ne sont passés QU'au vrai pas PROPOSER. Les rollouts imaginés du world-model appellent
+        # propose() sans eux → prompts K·H bornés + ancrage préservé (policy/mémoire hors WM).
         sys = _SYS
         if system_context:
             sys = f"{_SYS}\n\n[POLICY DU DOMAINE — à respecter strictement]\n{system_context}"
-        raw = self.llm.complete([system(sys), user(self.build_prompt(state, tools))])
+        raw = self.llm.complete([system(sys), user(self.build_prompt(state, tools, transcript))])
         actions = _parse_actions(raw, tools)
         if not actions:  # filet de sécurité : au moins une action valide
             actions = [Action(tool=tools[0])] if tools else [Action(tool="noop")]
