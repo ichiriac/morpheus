@@ -16,6 +16,7 @@ import re
 from ..llm.base import LLMClient, system, user
 from ..orchestrator.types import Action, State
 from ..text import strip_reasoning
+from .surprise import divergence as _text_divergence
 
 _SYS_PRED = (
     "Tu es un modèle du monde. On te donne un état et une action d'outil. Tu prédis, en une "
@@ -32,6 +33,11 @@ class WorldModel:
 
     def __init__(self, llm: LLMClient) -> None:
         self.llm = llm
+
+    def divergence(self, predicted: str, real_text: str) -> float:
+        """δ ∈ [0, 1] entre l'état prédit (texte) et l'état réel. Phase 1 : proxy Jaccard
+        (délègue à `surprise.divergence`). `JepaWorldModel` surcharge par un cosinus latent."""
+        return _text_divergence(predicted, real_text)
 
     def predict(self, state: State, action: Action) -> str:
         """ŝ' textuel : l'état latent/texte prédit après `action`."""

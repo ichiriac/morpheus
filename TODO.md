@@ -43,7 +43,8 @@ Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Q
 - **Piste B avancée (2026-07-13)** : smoke `train-jepa` **converge** (val pred 0.254→0.062,
   `checkpoints/jepa/jepa.pt`) ; `inspect-data` sur `hf:Salesforce/APIGen-MT-5k` OK (44 transitions,
   normalisation `from_messages` correcte).
-- **Pas encore fait sur GPU** : câblage τ²-bench, vrai run JEPA (sentence_transformer + APIGen), wiring JepaWorldModel.
+- **Pas encore fait sur GPU** : vrai run JEPA (sentence_transformer + APIGen) puis run τ²-bench
+  avec `jepa_wm.enabled` (le `JepaWorldModel` est écrit et testé, reste à l'alimenter d'un vrai checkpoint).
 
 ## ⚠️ Journal d'environnement — NE PAS re-découvrir
 
@@ -188,10 +189,19 @@ trop courtes (0–2 actions) → courbe plate. **Décision à prendre pour l'ét
 
 ## Étape 4 — wiring JEPA dans la boucle + Phases 3/4
 
-- [ ] Écrire `JepaWorldModel` (même contrat que `agents/world_model.py`) branché sur `jepa.pt` :
-      `predict` → `model.predict_next(...)`, `divergence` → `1 - cos(ŝ', E_state(obs))`,
-      `score_to_goal` → distance latente à `E_state(goal)`. **loop.py ne change pas.**
-- [ ] Re-mesurer la courbe réussite-vs-tours avec le JEPA latent.
+- [x] **JepaWorldModel FAIT (2026-07-13)** : `agents/jepa_world_model.py` charge `jepa.pt`
+      (encodeur gelé + modèle reconstruits depuis le checkpoint), même contrat que
+      `world_model.py` → **drop-in**. `predict`→`predict_next` (ŝ' latent), `score_to_goal`→cos
+      latent (proj état, proj but), `divergence`→`(1-cos(ŝ', proj(E_state(obs))))/2`.
+      **Intégration OPTIONNELLE** : `jepa_wm.enabled` (défaut `false`) — off ⇒ LLM WM, torch
+      jamais importé, tests intacts. 3 tests (`test_jepa_wm.py`, skip sans torch), suite verte.
+      ⚠️ **1 ligne changée dans loop.py** (`divergence()` → `self.wm.divergence()`, délégation à
+      comportement identique pour le LLM WM) — nécessaire pour une divergence latente ; le TODO
+      disait « loop.py ne change pas » mais c'était incompatible avec `divergence` côté WM.
+      **Limite v0** : lookahead latent à **1 pas** (pas de décodage latent→texte pour proposer
+      plus loin via Qwen) ; `horizon>1` ⇒ politique en espace latent, chantier ultérieur.
+- [ ] Re-mesurer la courbe réussite-vs-tours avec le JEPA latent (sur τ²-bench, JEPA entraîné
+      sur sentence_transformer + APIGen — le smoke hashing/synthetic ne guide pas le mock).
 - [x] **Phase 3 — KB v0 FAITE (2026-07-13)** : `agents/knowledge.py` charge les **policy.md
       de τ²** (chunk par règle atomique + retriever **BM25** sans dépendance) ; `loop.py` étape 5
       **récupère la KB *gated par la surprise*** (uniquement quand δ>seuil) et trace les règles

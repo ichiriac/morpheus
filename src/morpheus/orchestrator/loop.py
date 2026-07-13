@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from ..agents.knowledge import KnowledgeBase
 from ..agents.policy import Policy
-from ..agents.surprise import SurpriseRouter, divergence
+from ..agents.surprise import SurpriseRouter
 from ..agents.world_model import WorldModel
 from ..config import OrchestratorConfig
 from ..envs.base import Env
@@ -91,8 +91,8 @@ class Orchestrator:
             step = env.step(chosen)
             total_reward += step.reward
 
-            # 4. DIVERGENCE
-            delta = divergence(predicted, step.observation.text) if predicted else 0.0
+            # 4. DIVERGENCE (déléguée au world-model : texte pour LLM, cosinus latent pour JEPA)
+            delta = self.wm.divergence(predicted, step.observation.text) if predicted else 0.0
 
             # 5. ROUTER LA SURPRISE  +  RAG *gated par la surprise* (Phase 3)
             route = None

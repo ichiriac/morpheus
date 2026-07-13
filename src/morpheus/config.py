@@ -67,11 +67,23 @@ class EvalConfig:
 
 
 @dataclass
+class JepaWMConfig:
+    """World-model LATENT (JEPA). OPTIONNEL : si `enabled=False` (défaut), le runner garde le
+    LLM-as-world-model et torch n'est jamais importé. `enabled=True` charge `checkpoint`
+    (jepa.pt) et branche `JepaWorldModel` à la place — loop.py inchangé (même contrat)."""
+
+    enabled: bool = False
+    checkpoint: str = "checkpoints/jepa/jepa.pt"
+    device: str = "auto"                  # auto | cpu | cuda
+
+
+@dataclass
 class Config:
     policy: LLMConfig = field(default_factory=LLMConfig)
     world_model: LLMConfig = field(default_factory=LLMConfig)
     orchestrator: OrchestratorConfig = field(default_factory=OrchestratorConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
+    jepa_wm: JepaWMConfig = field(default_factory=JepaWMConfig)
 
     @classmethod
     def load(cls, path: str | Path) -> "Config":
@@ -81,6 +93,7 @@ class Config:
             world_model=LLMConfig(**(data.get("world_model") or {})),
             orchestrator=OrchestratorConfig(**(data.get("orchestrator") or {})),
             eval=EvalConfig(**(data.get("eval") or {})),
+            jepa_wm=JepaWMConfig(**(data.get("jepa_wm") or {})),
         )
 
     def to_dict(self) -> dict[str, Any]:
