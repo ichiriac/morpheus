@@ -48,6 +48,7 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
     out.mkdir(parents=True, exist_ok=True)
     trace_path = out / "episodes.jsonl"
 
+    tag = "WM" if cfg.orchestrator.use_world_model else "baseline"
     with trace_path.open("w", encoding="utf-8") as f:
         for i in range(n_tasks):
             env = make_env(i)
@@ -60,14 +61,23 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
                     close()
             bucket = env.required_turns()
             metric.add(bucket, result.success)
+            # Progression en direct (suivi/arrêt anticipé) : une ligne par tâche, flushée.
+            print(
+                f"[{tag}] {i + 1}/{n_tasks} · req={bucket} turns={result.turns} "
+                f"ok={result.success} · réussite {metric.n_success}/{metric.n} "
+                f"({metric.overall:.0%})",
+                flush=True,
+            )
             f.write(json.dumps({
                 "task": i,
+                "goal": env.goal(),   # persisté : requis pour rejouer score_to_goal (validation étape 4)
                 "required_turns": bucket,
                 "success": result.success,
                 "turns": result.turns,
                 "total_reward": result.total_reward,
                 "trace": [asdict(s) for s in result.trace],
             }, ensure_ascii=False) + "\n")
+            f.flush()
 
     (out / "summary.txt").write_text(summarize(metric), encoding="utf-8")
     (out / "config.json").write_text(
