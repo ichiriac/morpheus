@@ -36,7 +36,8 @@ class Policy:
         self.k = k
 
     def build_prompt(self, state: State, tools: list[str],
-                     transcript: list[tuple[str, str]] | None = None) -> str:
+                     transcript: list[tuple[str, str]] | None = None,
+                     facts: list[str] | None = None, route: str | None = None) -> str:
         # `transcript` = derniers couples (action → résultat d'outil/message). Sans lui, la
         # politique n'aurait que la DERNIÈRE observation et oublierait les résultats passés
         # (amnésie fatale en tool-use multi-tours). Rendu seulement au vrai PROPOSER.
@@ -48,24 +49,39 @@ class Policy:
             hist = f"[HISTORIQUE ACTION→RÉSULTAT]\n{lines}\n[/HISTORIQUE]\n"
         else:
             hist = f"Historique récent : {state.history[-5:]}\n"
+        # `facts` = règles de la KB récupérées suite à une SURPRISE au tour précédent (RAG gated).
+        # ERROR → l'action a fauté : corriger. NOVELTY → le monde est plus riche : assimiler.
+        kb = ""
+        if facts:
+            consigne = ("Ton coup précédent a FAUTÉ au regard de ces règles — propose une action "
+                        "CONFORME qui corrige."
+                        if route == "ERROR" else
+                        "Le monde s'est révélé plus riche que ton plan — ASSIMILE ces règles et "
+                        "adapte ton prochain coup.")
+            kb = ("[CONNAISSANCE RÉCUPÉRÉE — suite à surprise, à respecter]\n"
+                  + "\n".join(f"- {f}" for f in facts)
+                  + f"\n{consigne}\n[/CONNAISSANCE]\n")
         return (
             f"[GOAL]{state.goal}[/GOAL]\n"
             f"[ÉTAT COURANT]{state.text}[/ÉTAT COURANT]\n"
-            f"{hist}"
+            f"{hist}{kb}"
             f"[CANDIDATE_TOOLS]{', '.join(tools)}[/CANDIDATE_TOOLS]\n"
             f"Propose jusqu'à {self.k} actions candidates distinctes."
         )
 
     def propose(self, state: State, tools: list[str],
                 system_context: str | None = None,
-                transcript: list[tuple[str, str]] | None = None) -> list[Action]:
-        # `system_context` (policy domaine + signatures) et `transcript` (mémoire action→résultat)
-        # ne sont passés QU'au vrai pas PROPOSER. Les rollouts imaginés du world-model appellent
-        # propose() sans eux → prompts K·H bornés + ancrage préservé (policy/mémoire hors WM).
+                transcript: list[tuple[str, str]] | None = None,
+                facts: list[str] | None = None, route: str | None = None) -> list[Action]:
+        # `system_context` (policy domaine + signatures), `transcript` (mémoire action→résultat) et
+        # `facts` (KB récupérée sur surprise) ne sont passés QU'au vrai pas PROPOSER. Les rollouts
+        # imaginés du world-model appellent propose() sans eux → prompts K·H bornés, WM hors-RAG.
         sys = _SYS
         if system_context:
             sys = f"{_SYS}\n\n[POLICY DU DOMAINE — à respecter strictement]\n{system_context}"
-        raw = self.llm.complete([system(sys), user(self.build_prompt(state, tools, transcript))])
+        raw = self.llm.complete(
+            [system(sys), user(self.build_prompt(state, tools, transcript, facts, route))]
+        )
         actions = _parse_actions(raw, tools)
         if not actions:  # filet de sécurité : au moins une action valide
             actions = [Action(tool=tools[0])] if tools else [Action(tool="noop")]

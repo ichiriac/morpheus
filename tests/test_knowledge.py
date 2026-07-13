@@ -12,6 +12,7 @@ from morpheus.config import LLMConfig, OrchestratorConfig
 from morpheus.envs.mock_env import make_mock_env
 from morpheus.llm import build_llm
 from morpheus.orchestrator.loop import Orchestrator
+from morpheus.orchestrator.types import Action
 
 # Mini-policy au format τ² (titres + paragraphes = règles atomiques).
 SAMPLE = """# Retail agent policy
@@ -99,3 +100,60 @@ def test_rag_disabled_never_retrieves():
         make_mock_env(task_index=0, seed=0, buckets=[4, 8, 12])
     )
     assert all(not step.retrieved_facts for step in result.trace)
+
+
+def test_policy_prompt_injects_kb_facts_by_route():
+    """La KB récupérée entre dans le prompt PROPOSER, avec la consigne selon le routage."""
+    from morpheus.orchestrator.types import Observation, State
+
+    pol = Policy(build_llm(LLMConfig(kind="stub")), k=4)
+    st = State(goal="g", observation=Observation(text="état"))
+    facts = ["[retail:Cancel] An order can only be cancelled if pending."]
+    err = pol.build_prompt(st, ["cancel_order"], facts=facts, route="ERROR")
+    nov = pol.build_prompt(st, ["cancel_order"], facts=facts, route="NOVELTY")
+    assert "CONNAISSANCE RÉCUPÉRÉE" in err and "can only be cancelled" in err
+    assert "FAUTÉ" in err and "ASSIMILE" in nov               # consigne différente par route
+    # sans faits : pas de bloc KB
+    assert "CONNAISSANCE RÉCUPÉRÉE" not in pol.build_prompt(st, ["cancel_order"])
+
+
+# KB dont le vocabulaire recouvre les observations du mock (noms d'outils underscore compris).
+_KB_MOCK = """# Procédures retail (mock)
+
+## Ticket
+Pour un nouveau ticket, appeler authenticate_user puis lookup_order avant tout remboursement.
+
+## Remboursement
+Vérifier check_refund_policy et verify_payment_method avant issue_refund.
+"""
+
+
+class _TwoCandPolicy(Policy):
+    """Renvoie 2 candidats fixes (→ la branche world-model tourne) et espionne les `facts`."""
+
+    def __init__(self, llm, tools):
+        super().__init__(llm, k=2)
+        self._tools = tools
+        self.facts_seen: list = []
+
+    def propose(self, state, tools, system_context=None, transcript=None, facts=None, route=None):
+        self.facts_seen.append(facts)
+        return [Action(tool=tools[0]), Action(tool=tools[min(1, len(tools) - 1)])]
+
+
+def test_rag_facts_reinjected_at_next_proposer():
+    """Câblage : les faits récupérés sur surprise au tour t arment le PROPOSER du tour t+1
+    (les rollouts imaginés, eux, ne reçoivent JAMAIS de faits)."""
+    llm = build_llm(LLMConfig(kind="stub"))
+    env = make_mock_env(task_index=0, seed=0, buckets=[4, 8, 12])
+    kb = KnowledgeBase.from_text(_KB_MOCK, domain="retail")
+    pol = _TwoCandPolicy(llm, env.tool_names())
+    # seuil négatif → la surprise se déclenche dès que le world-model a prédit (predicted≠None).
+    cfg = OrchestratorConfig(k_candidates=2, horizon=1, max_turns=6, use_world_model=True,
+                             surprise_threshold=-1.0, use_rag=True, rag_top_k=3)
+    result = Orchestrator(pol, WorldModel(llm), cfg, SurpriseRouter(), kb=kb).run(env)
+
+    assert any(s.retrieved_facts for s in result.trace), "au moins une récupération attendue"
+    assert any(f for f in pol.facts_seen if f), "les faits doivent être réinjectés au PROPOSER"
+    # invariant : un PROPOSER n'a des faits que si un tour PRÉCÉDENT a récupéré (jamais au tour 1).
+    assert pol.facts_seen[0] is None

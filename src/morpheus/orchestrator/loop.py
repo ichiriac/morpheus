@@ -73,16 +73,23 @@ class Orchestrator:
         transcript: list[tuple[str, str]] = []
         if obs.text:
             transcript.append(("(ouverture)", obs.text))
+        # Faits KB récupérés sur surprise au tour t → réinjectés au PROPOSER du tour t+1
+        # (replanification ERROR / assimilation NOVELTY). La boucle re-ancre sur l'état vrai
+        # entre-temps : c'est la replanification MPC, pas une exécution à l'aveugle.
+        pending_facts: list[str] = []
+        pending_route: str | None = None
         total_reward = 0.0
         trace: list[TraceStep] = []
 
         for turn in range(1, self.cfg.max_turns + 1):
             state.turn = turn
 
-            # 1. PROPOSER
+            # 1. PROPOSER (informé par la KB récupérée au tour précédent, s'il y a eu surprise)
             candidates = self.policy.propose(
-                state, tools, system_context=sys_ctx, transcript=transcript
+                state, tools, system_context=sys_ctx, transcript=transcript,
+                facts=pending_facts or None, route=pending_route,
             )
+            pending_facts, pending_route = [], None   # consommés
 
             # 2. LOOKAHEAD (MPC) — sinon baseline nue
             if self.cfg.use_world_model and len(candidates) > 1:
@@ -121,9 +128,9 @@ class Orchestrator:
                 if self.cfg.use_rag and self.kb is not None:
                     query = f"{chosen} {step.observation.text}"
                     facts = [r.as_fact() for r in self.kb.retrieve(query, self.cfg.rag_top_k)]
-                # Couture Phase 3+ : selon `route`, replanifier (ERROR) / assimiler (NOVELTY)
-                # en réinjectant `facts` dans la politique. Ici on récupère + trace ; agir sur
-                # `facts` (replanification) est l'incrément suivant.
+                    # On ARME les faits pour le PROPOSER du tour suivant : replanifier (ERROR) /
+                    # assimiler (NOVELTY) en réinjectant la KB dans la politique.
+                    pending_facts, pending_route = facts, route
 
             trace.append(
                 TraceStep(
