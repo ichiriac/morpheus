@@ -13,6 +13,7 @@ import concurrent.futures as _cf
 from dataclasses import dataclass, field
 
 from ..agents.knowledge import KnowledgeBase
+from ..agents.memory import FactMemory
 from ..agents.policy import Policy
 from ..agents.surprise import SurpriseRouter
 from ..agents.world_model import WorldModel
@@ -78,6 +79,10 @@ class Orchestrator:
         # entre-temps : c'est la replanification MPC, pas une exécution à l'aveugle.
         pending_facts: list[str] = []
         pending_route: str | None = None
+        # Mémoire épisodique de faits atomiques (LWM-Planner) : accumule les faits des
+        # observations réelles ; interrogée sur surprise en complément de la KB statique.
+        # NON redondante avec le system_context (qui n'a que la policy, pas ce qui a été observé).
+        memory = FactMemory()
         total_reward = 0.0
         trace: list[TraceStep] = []
 
@@ -123,13 +128,16 @@ class Orchestrator:
                     score_before=score_before,
                     score_after=score_after,
                 )
-                # Récupération déclenchée UNIQUEMENT par la surprise (économie du RAG gated) :
-                # on interroge la KB avec l'état vrai + l'action qui a surpris.
+                # Récupération déclenchée UNIQUEMENT par la surprise (économie du gated) : on
+                # interroge, avec l'état vrai + l'action qui a surpris, la KB statique (policy) ET
+                # la mémoire épisodique (faits observés). Cette dernière sort du régime redondant.
+                query = f"{chosen} {step.observation.text}"
                 if self.cfg.use_rag and self.kb is not None:
-                    query = f"{chosen} {step.observation.text}"
-                    facts = [r.as_fact() for r in self.kb.retrieve(query, self.cfg.rag_top_k)]
-                    # On ARME les faits pour le PROPOSER du tour suivant : replanifier (ERROR) /
-                    # assimiler (NOVELTY) en réinjectant la KB dans la politique.
+                    facts += [r.as_fact() for r in self.kb.retrieve(query, self.cfg.rag_top_k)]
+                if self.cfg.use_memory:
+                    facts += [r.as_fact() for r in memory.retrieve(query, self.cfg.memory_top_k)]
+                if facts:
+                    # ARMÉS pour le PROPOSER du tour suivant : replanifier (ERROR) / assimiler (NOVELTY).
                     pending_facts, pending_route = facts, route
 
             trace.append(
@@ -151,6 +159,8 @@ class Orchestrator:
             state.observation = step.observation
             state.history.append(str(chosen))
             transcript.append((str(chosen), step.observation.text))
+            if self.cfg.use_memory:   # mémorise les faits atomiques de l'observation réelle
+                memory.observe(str(chosen), step.observation)
 
             if step.done:
                 return EpisodeResult(

@@ -37,8 +37,13 @@ class OrchestratorConfig:
     # les requêtes en vol au lieu de les traiter en série. 1 = séquentiel (déterministe/CI).
     concurrency: int = 1
     # --- RAG gated par la surprise (Phase 3) ---
-    use_rag: bool = False                 # True = récupère la KB quand δ dépasse le seuil
+    use_rag: bool = False                 # True = récupère la KB (policy) quand δ dépasse le seuil
     rag_top_k: int = 3                    # nb de règles de policy récupérées par surprise
+    # Mémoire épisodique de faits atomiques (LWM-Planner) : accumule les faits des observations
+    # RÉELLES et les récupère sur surprise. Sort du régime redondant du RAG-sur-policy (la policy
+    # est déjà dans le system_context ; les faits observés, non). Ablatable indépendamment.
+    use_memory: bool = False
+    memory_top_k: int = 3
 
 
 @dataclass
