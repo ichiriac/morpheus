@@ -34,19 +34,28 @@ _DISTRACTORS = ["escalate_to_human", "cancel_order", "apply_discount", "noop"]
 
 
 class MockRetailEnv:
-    def __init__(self, length: int, novelty_at: int | None = None, seed: int = 0) -> None:
+    def __init__(self, length: int, novelty_at: int | None = None, seed: int = 0,
+                 reveal_next: bool = True) -> None:
         self.length = max(1, min(length, len(_CHAIN)))
         self.chain = _CHAIN[: self.length]
         self.novelty_at = novelty_at
         self.seed = seed
+        # reveal_next=False (mode PLANNING) : l'observation ne dicte plus l'étape suivante.
+        # L'agent doit suivre le plan (goal) et sa mémoire → la charge de planification croît
+        # avec la longueur, où le lookahead du world-model peut départager les K candidats.
+        self.reveal_next = reveal_next
         self.pos = 0
         self._done = False
+
+    def _next_hint(self, nxt: str) -> str:
+        return f" Prochaine étape attendue : {nxt}." if self.reveal_next else ""
 
     # --- API Env ---
     def reset(self) -> Observation:
         self.pos = 0
         self._done = False
-        return Observation(text=f"Nouveau ticket. Prochaine étape attendue : {self.chain[0]}.")
+        head = "Nouveau ticket de remboursement à traiter."
+        return Observation(text=head + self._next_hint(self.chain[0]))
 
     def step(self, action: Action) -> StepResult:
         if self._done:
@@ -81,10 +90,10 @@ class MockRetailEnv:
         if self.novelty_at is not None and self.pos == self.novelty_at:
             text = (
                 f"Étape {expected} OK — note inattendue : le compte est de type PREMIUM, "
-                f"traitement prioritaire. Prochaine étape attendue : {nxt}."
+                f"traitement prioritaire." + self._next_hint(nxt)
             )
         else:
-            text = f"Étape {expected} OK. Prochaine étape attendue : {nxt}."
+            text = f"Étape {expected} OK." + self._next_hint(nxt)
         return StepResult(Observation(text=text), reward=0.1, done=False, info={"success": False})
 
     def goal(self) -> str:
@@ -104,9 +113,12 @@ class MockRetailEnv:
         return None
 
 
-def make_mock_env(task_index: int, seed: int, buckets: list[int]) -> MockRetailEnv:
+def make_mock_env(task_index: int, seed: int, buckets: list[int],
+                  reveal_next: bool = True) -> MockRetailEnv:
     """Génère une tâche dont la longueur cycle sur `buckets` (4/8/12), avec une nouveauté
-    injectée à mi-parcours une tâche sur deux — pour peupler la courbe vs-tours."""
+    injectée à mi-parcours une tâche sur deux — pour peupler la courbe vs-tours.
+    `reveal_next=False` = mode planning (l'obs ne dicte plus l'étape suivante)."""
     length = buckets[task_index % len(buckets)]
     novelty = (length // 2) if (task_index % 2 == 0) else None
-    return MockRetailEnv(length=length, novelty_at=novelty, seed=seed + task_index)
+    return MockRetailEnv(length=length, novelty_at=novelty, seed=seed + task_index,
+                         reveal_next=reveal_next)

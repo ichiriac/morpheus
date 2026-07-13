@@ -1,0 +1,50 @@
+# Mock « planning » avec Qwen réel : valider le MÉCANISME world-model (divergence baseline vs WM
+# à 8/12 tours) sur un régime contrôlé où la baseline commence à échouer avec la longueur.
+#
+# mock_hard: true → l'observation ne révèle PLUS l'étape suivante. L'agent doit suivre le plan
+# (goal) et sa mémoire (scratchpad). À longueur courte la politique propose souvent le bon coup
+# en 1er (baseline OK) ; à longueur longue elle se trompe plus → le lookahead du world-model peut
+# départager les K candidats. C'est LA courbe que la thèse veut voir se redresser à 8+ tours.
+#
+# Lancer les DEUX variantes (même config) :
+#   morpheus run --config configs/qwen_mock_hard.yaml --no-world-model --out runs/mockhard_baseline
+#   morpheus run --config configs/qwen_mock_hard.yaml               --out runs/mockhard_wm
+
+policy:
+  kind: openai
+  model: Qwen/Qwen3-32B-AWQ
+  base_url: http://localhost:8000/v1
+  api_key_env: null
+  temperature: 0.3
+  max_tokens: 256
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+world_model:
+  kind: openai
+  model: Qwen/Qwen3-32B-AWQ
+  base_url: http://localhost:8000/v1
+  api_key_env: null
+  temperature: 0.0
+  max_tokens: 48
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+orchestrator:
+  k_candidates: 4
+  horizon: 2
+  max_turns: 16
+  surprise_threshold: 0.5
+  use_world_model: true
+  concurrency: 8
+
+eval:
+  env: mock
+  domain: retail
+  mock_hard: true
+  tasks: 12                  # 4 par bucket (4/8/12)
+  turn_buckets: [4, 8, 12]
+  seed: 0
+  out_dir: runs/mockhard_wm

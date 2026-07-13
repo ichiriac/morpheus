@@ -49,6 +49,9 @@ class EvalConfig:
     turn_buckets: list[int] = field(default_factory=lambda: [4, 8, 12])
     seed: int = 0
     out_dir: str = "runs"
+    # mock « planning » : l'observation ne révèle plus l'étape suivante → charge de planification
+    # croissante avec la longueur (régime où le lookahead du world-model peut départager les K).
+    mock_hard: bool = False
     # --- τ²-bench (env: tau2) ---
     # solo=True : agent seul (DummyUser, hors-ligne) ; n'accepte QUE les tâches avec un
     # `ticket` (telecom/mock). solo=False : user simulé par LLM (retail/airline) → renseigner

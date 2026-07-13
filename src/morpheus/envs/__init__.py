@@ -12,7 +12,8 @@ def build_env_factory(cfg: EvalConfig):
     if cfg.env == "mock":
         from .mock_env import make_mock_env
 
-        make = lambda i: make_mock_env(task_index=i, seed=cfg.seed, buckets=cfg.turn_buckets)
+        make = lambda i: make_mock_env(task_index=i, seed=cfg.seed, buckets=cfg.turn_buckets,
+                                       reveal_next=not cfg.mock_hard)
         return make, cfg.tasks
     if cfg.env == "tau2":
         from .tau2_adapter import build_tau2_factory
