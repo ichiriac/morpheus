@@ -186,22 +186,17 @@ Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo 
       (aucun besoin utilisateur) ; le besoin émerge du dialogue (observations). Solo garde le `ticket`
       (brief légitime). Test de non-régression `test_nonsolo_goal_does_not_leak_user_scenario`.
 
-### ⚠️ À TRANCHER avant la mesure de l'étape 3
+### Décisions tranchées (2026-07-13)
 
-Deux questions couplées, ouvertes par le fix ci-dessus :
-
-1. **Policy du domaine** — le vrai agent τ² a la policy complète en système ; morpheus ne l'a plus
-   (goal générique). Sans elle, morpheus est *sous-informé* (règles retail inconnues) → toujours pas
-   comparable au leaderboard, biais inverse. Options : (a) **contexte système dédié** dans `policy.py`
-   = policy du domaine (fidèle à τ², la garder HORS du prompt world-model pour borner le coût) ;
-   (b) s'appuyer sur le **RAG existant** (`knowledge.py`, policy.md → BM25, gated surprise) ;
-   (c) policy entière dans `goal()` (simple mais gonfle les prompts K·H). *Reco : (a).*
-2. **Formation du but latent `g` en non-solo** — le world-model veut un `g` concret, mais en non-solo
-   il n'existe aucun but légitime a priori : il doit **émerger du dialogue**. Options : (a) `g`
-   statique générique (signal `score_to_goal` faible mais honnête) ; (b) `g` **dynamique** distillé de
-   la conversation une fois le besoin révélé (met à jour `state.goal` en cours d'épisode → vrai signal
-   MPC, fidèle à « le but émerge du dialogue » ; touche `loop.py`/l'orchestrateur). *Reco : (a)
-   d'abord pour débloquer une mesure, (b) comme raffinement une fois JEPA branché.*
+1. **Policy du domaine → contexte système dédié FAIT.** `Env.system_context()` renvoie la policy
+   du domaine τ² (le manuel légitime, ce que le vrai agent a en système) ; `Policy.propose` la reçoit
+   au **vrai pas PROPOSER seulement**. Les rollouts imaginés du world-model appellent `propose()` sans
+   elle → prompts K·H **bornés** (mock renvoie `None`). Testé (`tests/test_system_context.py` :
+   injectée au vrai propose, ABSENTE des prompts world-model). Vérifié en réel : run retail 1 tâche
+   avec policy complète → OK, pas d'erreur de contexte, l'agent applique les règles + dialogue.
+2. **But latent `g` → statique générique** (retenu). `score_to_goal` reste un signal faible assumé en
+   non-solo (le world-model s'appuie surtout sur la divergence des observations). `g` **dynamique**
+   distillé du dialogue = raffinement différé (touche `loop.py`), à faire une fois JEPA branché.
 
 ## Étape 3 — mesures de référence (livrable Phase 1)
 

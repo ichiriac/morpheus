@@ -64,6 +64,9 @@ class Orchestrator:
         obs = env.reset()
         tools = env.tool_names()
         state = State(goal=env.goal(), observation=obs)
+        # Manuel LÉGITIME de l'agent (policy du domaine τ²) : injecté au vrai PROPOSER seulement,
+        # PAS dans les rollouts imaginés du world-model (prompts K·H bornés).
+        sys_ctx = getattr(env, "system_context", lambda: None)()
         total_reward = 0.0
         trace: list[TraceStep] = []
 
@@ -71,7 +74,7 @@ class Orchestrator:
             state.turn = turn
 
             # 1. PROPOSER
-            candidates = self.policy.propose(state, tools)
+            candidates = self.policy.propose(state, tools, system_context=sys_ctx)
 
             # 2. LOOKAHEAD (MPC) — sinon baseline nue
             if self.cfg.use_world_model and len(candidates) > 1:

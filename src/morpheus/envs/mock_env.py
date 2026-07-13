@@ -99,6 +99,10 @@ class MockRetailEnv:
     def required_turns(self) -> int:
         return self.length
 
+    def system_context(self) -> str | None:
+        # Le mock encode déjà l'objectif dans goal() ; pas de manuel de domaine séparé.
+        return None
+
 
 def make_mock_env(task_index: int, seed: int, buckets: list[int]) -> MockRetailEnv:
     """Génère une tâche dont la longueur cycle sur `buckets` (4/8/12), avec une nouveauté

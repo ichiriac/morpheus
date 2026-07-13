@@ -79,6 +79,7 @@ class Tau2Env:
         )
         self._tools: list[str] = []
         self._goal: str = ""
+        self._policy_text: str = ""
         self._done: bool = False
 
     # --- API Env ---
@@ -86,6 +87,8 @@ class Tau2Env:
         obs, info = self._gym.reset()
         self._tools = [t.name for t in info.get("tools", [])]
         self._goal = _build_goal(info.get("task"), self._solo, self._domain)
+        # Manuel LÉGITIME de l'agent (ce que le vrai agent τ² a en système) : la policy du domaine.
+        self._policy_text = info.get("policy") or ""
         self._done = False
         # En solo, l'observation initiale est vide (le ticket est porté par goal()).
         return Observation(text=obs or "(nouvelle tâche — voir l'objectif)")
@@ -115,6 +118,11 @@ class Tau2Env:
 
     def goal(self) -> str:
         return self._goal
+
+    def system_context(self) -> str | None:
+        """Policy du domaine — manuel légitime de l'agent (le vrai agent τ² l'a en système).
+        Injectée au vrai pas PROPOSER seulement (cf. Policy.propose), pas dans le world-model."""
+        return self._policy_text or None
 
     def tool_names(self) -> list[str]:
         return self._tools + self._extra_tools

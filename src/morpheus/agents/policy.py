@@ -39,8 +39,15 @@ class Policy:
             f"Propose jusqu'à {self.k} actions candidates distinctes."
         )
 
-    def propose(self, state: State, tools: list[str]) -> list[Action]:
-        raw = self.llm.complete([system(_SYS), user(self.build_prompt(state, tools))])
+    def propose(self, state: State, tools: list[str],
+                system_context: str | None = None) -> list[Action]:
+        # `system_context` = manuel LÉGITIME de l'agent (policy du domaine τ²), injecté SEULEMENT
+        # au vrai pas PROPOSER. Les rollouts imaginés du world-model appellent propose() sans lui
+        # → prompts K·H bornés (décision : policy hors du world-model).
+        sys = _SYS
+        if system_context:
+            sys = f"{_SYS}\n\n[POLICY DU DOMAINE — à respecter strictement]\n{system_context}"
+        raw = self.llm.complete([system(sys), user(self.build_prompt(state, tools))])
         actions = _parse_actions(raw, tools)
         if not actions:  # filet de sécurité : au moins une action valide
             actions = [Action(tool=tools[0])] if tools else [Action(tool="noop")]

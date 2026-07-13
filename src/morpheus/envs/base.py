@@ -28,3 +28,9 @@ class Env(Protocol):
     def required_turns(self) -> int:
         """Nb de tours de la solution de référence (sert au bucketing des métriques)."""
         ...
+
+    def system_context(self) -> str | None:
+        """Manuel LÉGITIME de l'agent (ex. policy du domaine τ²), injecté au VRAI pas PROPOSER
+        seulement (pas dans les rollouts imaginés). None si l'env n'en a pas (mock). Optionnel :
+        l'orchestrateur lit `getattr(env, "system_context", lambda: None)()`."""
+        ...
