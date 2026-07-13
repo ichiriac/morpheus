@@ -101,11 +101,24 @@ Longue session de mesure. Beaucoup d'infra + des **résultats négatifs solides*
         `states` retail sont des **blobs JSON bruts** d'outils (`{"order_id":...}`, IDs nus), pas des
         observations NL comme à l'entraînement APIGen. Le latent est goal-relative LÀ OÙ il a été
         entraîné, pas encore sur τ²-retail.
-- [ ] **SUITE DU FIX (transfert τ²)** : entraîner l'alignement sur des transitions de **domaine τ²**
-      (states JSON + but d'issue par tâche, PAS l'instruction générique), split held-out par
-      trajectoire (anti-leak vis-à-vis de `tau2_replay/retail.jsonl`), re-valider H1/H2. Alternative
-      côté éval : donner à `score_to_goal` un but d'ISSUE par tâche (sans fuite `user_scenario`) +
-      normaliser les states JSON→NL avant encodage.
+- [x] **SUITE DU FIX (transfert τ²) — H1 RÉPARÉ sur held-out (2026-07-13)** : alignement entraîné
+      EN-DOMAINE sur les transitions τ² rejouées (states JSON + but générique retail), split
+      **held-out par trajectoire** (`scripts/build_tau2_alignment_data.py` : 101 traj train / 33 val
+      held-out ; anti-leak). But unique ⇒ `w_goal_nce=0` (InfoNCE dégénéré) : on apprend un AXE DE
+      PROGRESSION conditionné sur le but. Config `jepa_tau2_align.yaml`, checkpoint
+      `checkpoints/jepa_tau2_align/jepa.pt`. **Gate held-out** (`retail_align_val.jsonl`, 21 succ /
+      12 échecs) :
+      - **H1 PASS** : mean_rho **+0.567** (médiane 0.7, frac>0 0.857, **p=0.0001**) — INVERSION
+        CORRIGÉE (avant : rho −0.46 avec le checkpoint APIGen). Latent τ² monotone goal-relative
+        sur des trajectoires JAMAIS VUES.
+      - **H2 FAIL mais MARGINAL** : pente succès 0.059 > pente échec 0.027, **p=0.064** (juste
+        au-dessus de α=0.05, direction CORRECTE). Limité par 12 négatifs seulement, tous « dernière
+        action tronquée » → ils progressent presque autant que les succès.
+      ⇒ Verdict script encore ❌ (H2 < 0.05) mais **H1 (la monotonie, le nœud) est réparé sur held-out**.
+- [ ] **Pousser H2 au-dessus de 0.05** (leviers, sans p-hacking) : négatifs plus variés (échecs
+      précoces, pas seulement dernière-action-tronquée) ; alignement plus franc (sim_own n'est que
+      +0.02 — augmenter `w_goal`/epochs sous surveillance du held-out) ; ou but d'issue par tâche.
+      Ensuite : mesure baseline vs JEPA-WM sur un régime discriminant.
 - [x] **DÉBLOCAGE DONNÉES FAIT (2026-07-13)** : `scripts/replay_reference_trajectories.py` rejoue
       les `evaluation_criteria.actions` de référence contre l'env τ² → **112 positifs retail**
       (db_reward=1.0 vérifié par l'évaluateur τ² officiel ; 77 exploitables ≥3 états) + **57 négatifs**

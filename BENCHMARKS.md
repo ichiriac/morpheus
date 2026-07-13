@@ -23,7 +23,13 @@ Fix = terme d'**alignement but↔état** dans la perte JEPA (`goal_alignment_los
 | Checkpoint | Étendue synthétique | Monotonie (Spearman) | Étendue τ² (médiane intra-ép.) | Gate H1 | Gate H2 |
 |---|---|---|---|---|---|
 | `jepa_apigen` (AVANT, sans alignement) | **0.0086** (dégénéré) | ~0 | ~0.0086 | FAIL | **FAIL** (pentes ≈ 0.0001) |
-| `jepa_apigen_goal` (APRÈS, MiniLM) | **0.20** | **+0.96** | **0.176** | FAIL (rho −0.46) | **PASS** (p=0.0003, mais magnitude faible) |
+| `jepa_apigen_goal` (APRÈS, MiniLM, APIGen) | **0.20** | **+0.96** | **0.176** | FAIL (rho −0.46) | **PASS** (p=0.0003, mais magnitude faible) |
+| `jepa_tau2_align` (EN-DOMAINE τ², held-out) | — | **+0.567** (rho held-out) | — | **PASS** (p=0.0001) | FAIL marginal (p=0.064, direction OK) |
+
+> `jepa_tau2_align` : alignement entraîné sur des transitions τ²-retail rejouées, **split held-out par
+> trajectoire** (`build_tau2_alignment_data.py`, anti-leak). Gate sur les 33 trajectoires held-out
+> (21 succ / 12 échecs) : **H1 monotonie RÉPARÉE** (rho +0.567 vs −0.46 avant), H2 directionnellement
+> correct mais p=0.064 (12 négatifs « dernière-action-tronquée » qui progressent presque autant).
 
 **Lecture** : mécanisme validé **en-distribution** (étendue franche, monotone, discriminant). Sur
 **τ²-retail**, H2 passe (séparation succès/échec, AVANT elle échouait) mais **H1 reste FAIL** (inversé) :

@@ -1,0 +1,39 @@
+# SUITE DU FIX (transfert τ²) : alignement goal-relative EN-DOMAINE sur les trajectoires τ²
+# rejouées (states JSON + but générique retail), split held-out par trajectoire.
+#
+# Données construites par scripts/build_tau2_alignment_data.py (anti-leak vs retail_align_val).
+# But retail UNIQUE ⇒ w_goal_nce=0 (l'InfoNCE inter-buts est dégénéré avec des buts identiques) :
+# on apprend un AXE DE PROGRESSION conditionné sur ce but. Encodeur = MiniLM (comme l'inférence).
+#
+#   python scripts/build_tau2_alignment_data.py
+#   morpheus train-jepa --config configs/jepa_tau2_align.yaml
+#   python scripts/validate_goal_signal.py --trajectories data/tau2_replay/retail_align_val.jsonl \
+#       --checkpoint checkpoints/jepa_tau2_align/jepa.pt
+
+source: jsonl:data/tau2_replay/retail_align_train.jsonl
+
+encoder: sentence_transformer
+encoder_model: sentence-transformers/all-MiniLM-L6-v2
+enc_dim: 384
+
+latent_dim: 256
+action_dim: 128
+hidden: 512
+
+epochs: 80
+batch_size: 128
+lr: 0.0003
+weight_decay: 0.0001
+val_frac: 0.15
+seed: 0
+device: auto
+
+w_pred: 1.0
+w_var: 1.0
+w_cov: 0.04
+# signal goal-relative : alignement pur (pas d'InfoNCE — but unique)
+w_goal: 2.0
+w_goal_nce: 0.0
+goal_temp: 0.1
+
+out_dir: checkpoints/jepa_tau2_align
