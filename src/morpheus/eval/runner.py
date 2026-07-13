@@ -81,6 +81,7 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
                 "turns": result.turns,
                 "success_via_close": bool(not result.success and success),
                 "total_reward": result.total_reward,
+                "reward_breakdown": getattr(env, "reward_breakdown", lambda: None)(),
                 "trace": [asdict(s) for s in result.trace],
             }, ensure_ascii=False) + "\n")
             f.flush()

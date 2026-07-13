@@ -58,16 +58,17 @@ def _quiet_tau2() -> None:
         pass
 
 
-def _replay(env_constructor, task, actions, evaluator):
-    """Rejoue `actions` contre un env frais, renvoie (states, reward, n_ok, had_error).
+def _replay(env_constructor, task, actions, evaluator, solo: bool = False):
+    """Rejoue `actions` contre un env frais, renvoie (states, acts, reward, n_ok, had_error).
 
     `states[t]` = texte du résultat de la t-ième action (l'observation que la politique verrait),
     miroir de `TraceStep.real_state`. `reward` = db_reward de l'évaluateur τ² OFFICIEL sur la
     trajectoire construite (fresh predicted env vs gold env qui rejoue les actions de référence).
-    """
+    `solo` : domaines à tickets (telecom) → le scoring DB officiel exige solo_mode=True (sinon le
+    rejeu n'atteint pas l'état-but et les positifs sont ignorés)."""
     from tau2.data_model.message import AssistantMessage, ToolCall
 
-    env = env_constructor(solo_mode=False)
+    env = env_constructor(solo_mode=solo)
     trajectory = []
     states: list[str] = []
     acts: list[str] = []            # texte de l'action qui a produit chaque état (nom + args)
@@ -88,7 +89,7 @@ def _replay(env_constructor, task, actions, evaluator):
 
     reward = None
     try:
-        ri = evaluator.calculate_reward(env_constructor, task, list(trajectory), solo_mode=False)
+        ri = evaluator.calculate_reward(env_constructor, task, list(trajectory), solo_mode=solo)
         reward = float(ri.reward)
     except Exception as e:  # pragma: no cover — robustesse par tâche
         print(f"    ⚠️  évaluateur KO : {e}", file=sys.stderr)
@@ -102,6 +103,10 @@ def main(argv=None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="limiter le nombre de tâches (0 = toutes)")
     ap.add_argument("--min-len", type=int, default=3,
                     help="longueur mini d'une trajectoire conservée (défaut 3 = MIN_LEN du validateur)")
+    ap.add_argument("--solo", action="store_true",
+                    help="domaines à tickets (telecom) : solo_mode=True pour le rejeu ET le scoring "
+                         "DB, et but = ticket PAR TÂCHE (brief légitime, non-fuyant) → buts distincts "
+                         "⇒ InfoNCE inter-buts exploitable (contrairement au but générique non-solo).")
     ap.add_argument("--no-negatives", action="store_true",
                     help="ne pas générer les négatifs tronqués (positifs seulement)")
     ap.add_argument("--neg-fracs", default="0.4,0.65,0.9",
@@ -129,16 +134,19 @@ def main(argv=None) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     n_pos = n_pos_usable = n_neg = n_skip_reward = 0
-    goal = _build_goal(None, solo=False, domain=args.domain)  # générique : indépendant de la tâche
+    # non-solo : but générique unique. solo : but = ticket PAR TÂCHE (calculé dans la boucle).
+    generic_goal = _build_goal(None, solo=False, domain=args.domain)
 
     with out_path.open("w", encoding="utf-8") as f:
         for task in tasks:
             actions = list(task.evaluation_criteria.actions or [])
             if not actions:
                 continue
+            goal = _build_goal(task, solo=True, domain=args.domain) if args.solo else generic_goal
 
             # --- POSITIF : rejeu complet → doit atteindre l'état-but (db_reward == 1.0) ---
-            states, acts, reward, n_ok, had_error = _replay(env_constructor, task, actions, EnvironmentEvaluator)
+            states, acts, reward, n_ok, had_error = _replay(
+                env_constructor, task, actions, EnvironmentEvaluator, solo=args.solo)
             success = reward is not None and reward >= 1.0 - 1e-9
             if not success:
                 n_skip_reward += 1
@@ -164,7 +172,7 @@ def main(argv=None) -> int:
                 cuts = [k for k in cuts if args.min_len <= k <= L - 1]   # ≥ min_len, ≥1 action retirée
                 for k in cuts:
                     t_states, t_acts, t_reward, _, _ = _replay(
-                        env_constructor, task, actions[:k], EnvironmentEvaluator
+                        env_constructor, task, actions[:k], EnvironmentEvaluator, solo=args.solo
                     )
                     # ne garder que les VRAIS échecs (n'atteint pas l'état-but)
                     if t_reward is not None and t_reward < 1.0 - 1e-9 and len(t_states) >= args.min_len:

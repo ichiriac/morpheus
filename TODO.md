@@ -149,6 +149,20 @@ Longue session de mesure. Beaucoup d'infra + des **résultats négatifs solides*
       GOAL ci-dessus (P(z,a,g) conditionné OU terme d'alignement but↔état-terminal).
 - [ ] Ensuite seulement : mesure baseline vs JEPA-WM sur un régime discriminant.
 
+- [ ] **EN COURS (2026-07-13, committé) — juge NL-assertions retail câblé sur le vLLM local** :
+      sans lui le reward retail = 0 (défaut τ² = `gpt-4.1` → 404 ; 112/114 tâches retail ont
+      `NL_ASSERTION` dans `reward_basis` ⇒ reward = db × nl = 0). `tau2_adapter._wire_nl_judge`
+      patche `DEFAULT_LLM_NL_ASSERTIONS` (au niveau du module evaluator, pas `tau2.config`),
+      coupe le mode *thinking* et force `response_format=json_object` (sinon `json.loads` casse).
+      Config : `tau2_judge_{llm,base_url,api_key_env}` (`configs/qwen_tau2.yaml` + `_jepawm.yaml`).
+      Aussi : `reward_breakdown` (DB vs NL) exposé par l'env et journalisé par le runner ; rejeu
+      `--solo` (telecom) pour un scoring DB fiable. ⚠️ **Qwen-juge-Qwen = mesure indicative, pas
+      une référence** — cf. mémoire [[tau2-retail-scoring-needs-llm-judge]]. **Non encore mesuré
+      end-to-end** (serveur vLLM à relancer).
+- [ ] **Procédure d'install consolidée** : voir [`INSTALL.md`](INSTALL.md) (from scratch). Le
+      checkpoint validé `checkpoints/jepa_tau2_align/jepa.pt` (H1+H2 PASS) **+** `data/tau2_replay/`
+      sont désormais **versionnés** (exceptions `.gitignore`) → survivent à la perte du serveur.
+
 **État env en fin de session** : le **serveur vLLM est ARRÊTÉ** (je l'ai stoppé pour libérer la VRAM
 et entraîner JEPA sur GPU). Le relancer pour toute mesure LLM (cf. Journal §5). Le checkpoint JEPA et
 le clone `tau2-bench` sont sur `/workspace` (persistants).

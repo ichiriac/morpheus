@@ -22,12 +22,21 @@ runs/
 # annotations manuelles ERREUR/NOUVEAUTÉ (H3) + trajectoires annotées — versionnées malgré *.jsonl
 !data/annotations/**/*.jsonl
 !data/annotations/*.jsonl
-checkpoints/
+checkpoints/*
 *.pt
 *.ckpt
 
 # Logs de session (install / serveur vLLM)
 *.log
+
+# --- Artefacts PRÉSERVÉS malgré les règles ci-dessus (survie à la perte du serveur) ---
+# Checkpoint JEPA VALIDÉ (gate held-out H1+H2 PASS) : non reproductible sans GPU.
+!checkpoints/jepa_tau2_align/
+!checkpoints/jepa_tau2_align/**
+# Donnée de replay τ² source (régénérable sans LLM via replay_reference_trajectories.py,
+# mais versionnée pour restaurer/réentraîner à l'identique). Cf. INSTALL.md §Restauration.
+!data/tau2_replay/
+!data/tau2_replay/*.jsonl
 
 # Secrets
 .env

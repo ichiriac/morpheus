@@ -50,6 +50,11 @@ eval:
   tau2_user_llm: openai/Qwen/Qwen3-32B-AWQ
   tau2_user_base_url: http://localhost:8000/v1
   tau2_user_api_key_env: null
+  # Juge des NL-assertions (reward retail) sur le MÊME vLLM local — sinon défaut gpt-4.1 → 404,
+  # reward = 0 pour 112/114 tâches. ⚠️ Qwen jugeant Qwen : mesure indicative, pas de référence.
+  tau2_judge_llm: openai/Qwen/Qwen3-32B-AWQ
+  tau2_judge_base_url: http://localhost:8000/v1
+  tau2_judge_api_key_env: null
   tasks: 30
   turn_buckets: [4, 8, 12]
   seed: 0

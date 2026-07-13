@@ -82,6 +82,9 @@ class Tau2Env:
         self._policy_text: str = ""
         self._tool_sig: str = ""
         self._done: bool = False
+        # Décomposition du reward τ² (ex. {"DB": 0.0, "NL_ASSERTION": 1.0}) : distingue un échec
+        # « état DB non atteint » (agent) d'un échec « assertions NL non satisfaites » (juge LLM).
+        self._reward_breakdown: dict[str, float] | None = None
 
     # --- API Env ---
     def reset(self) -> Observation:
@@ -111,6 +114,7 @@ class Tau2Env:
             gym_action = json.dumps({"name": action.tool, "arguments": action.args or {}})
 
         obs, reward, terminated, _truncated, info = self._gym.step(gym_action)
+        self._capture_reward_info(info)
 
         self._done = bool(terminated)
         reward = float(reward)
@@ -155,11 +159,29 @@ class Tau2Env:
             return None
         reward = None
         try:
-            _obs, reward, _term, _trunc, _info = gym.step('{"name": "done", "arguments": {}}')
+            _obs, reward, _term, _trunc, info = gym.step('{"name": "done", "arguments": {}}')
+            self._capture_reward_info(info)
         except Exception:
             reward = None
         self._done = True
         return float(reward) if reward is not None else None
+
+    def _capture_reward_info(self, info: dict | None) -> None:
+        """Extrait la décomposition du reward (`reward_info` JSON du gym τ²) → `_reward_breakdown`.
+        Silencieux si absent/malformé : c'est un signal de diagnostic, pas un chemin critique."""
+        ri = (info or {}).get("reward_info")
+        if not ri:
+            return
+        try:
+            data = json.loads(ri) if isinstance(ri, str) else ri
+            bd = data.get("reward_breakdown")
+            if bd:
+                self._reward_breakdown = {str(getattr(k, "value", k)): float(v) for k, v in bd.items()}
+        except Exception:
+            pass
+
+    def reward_breakdown(self) -> dict[str, float] | None:
+        return self._reward_breakdown
 
 
 def _tool_signatures(tool_objs: list, extra_tools: list[str]) -> str:
@@ -255,6 +277,36 @@ def _num_agent_actions(task) -> int:
         return -1
 
 
+def _wire_nl_judge(cfg: EvalConfig) -> None:
+    """Pointe le juge LLM des NL-assertions vers l'endpoint `tau2_judge_*`. Sans ça il reste sur
+    le défaut τ² (`gpt-4.1`, clé OpenAI) → 404/crash sur un vLLM local, et le reward retail tombe
+    à 0 (112/114 tâches retail ont NL_ASSERTION dans leur reward_basis ; reward = db × nl).
+
+    Le module `evaluator_nl_assertions` importe `DEFAULT_LLM_NL_ASSERTIONS` AU CHARGEMENT et
+    l'utilise par son nom local : patcher `tau2.config` serait sans effet, on patche donc le nom
+    DANS le module evaluator. No-op si `tau2_judge_llm` n'est pas renseigné (comportement τ² natif)."""
+    if not cfg.tau2_judge_llm:
+        return
+    import os
+
+    from tau2.evaluator import evaluator_nl_assertions as _nl
+
+    args = dict(getattr(_nl, "DEFAULT_LLM_NL_ASSERTIONS_ARGS", {}) or {})
+    if cfg.tau2_judge_base_url:
+        args["api_base"] = cfg.tau2_judge_base_url
+    key = os.environ.get(cfg.tau2_judge_api_key_env) if cfg.tau2_judge_api_key_env else None
+    args["api_key"] = key or "EMPTY"
+    # Le juge fait `json.loads(content)` sans garde-fou : avec un Qwen local il FAUT (1) couper le
+    # mode « thinking » (sinon un bloc <think> précède le JSON) et (2) forcer un objet JSON valide
+    # (vLLM respecte response_format). Sans ça le parse casse → reward en erreur sur chaque tâche.
+    extra = dict(args.get("extra_body") or {})
+    extra.setdefault("chat_template_kwargs", {"enable_thinking": False})
+    args["extra_body"] = extra
+    args.setdefault("response_format", {"type": "json_object"})
+    _nl.DEFAULT_LLM_NL_ASSERTIONS = cfg.tau2_judge_llm
+    _nl.DEFAULT_LLM_NL_ASSERTIONS_ARGS = args
+
+
 def build_tau2_factory(cfg: EvalConfig):
     """Charge le jeu de tâches τ² une fois, sélectionne un sous-ensemble, et renvoie une
     fabrique `make(task_index) -> Tau2Env`. Filtre les tâches solo-invalides (sans ticket)."""
@@ -274,6 +326,9 @@ def build_tau2_factory(cfg: EvalConfig):
         _tau2_logger.disable("tau2")
     except Exception:
         pass
+
+    # Câble le juge NL-assertions (reward retail/airline) sur l'endpoint local si configuré.
+    _wire_nl_judge(cfg)
 
     split = cfg.tau2_split
     tasks = registry.get_tasks_loader(cfg.domain)(split) if split else registry.get_tasks_loader(cfg.domain)()

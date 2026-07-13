@@ -1,0 +1,64 @@
+# MESURE baseline vs JEPA-WM sur τ²-retail (distribution où le signal goal est VALIDÉ, H1+H2 PASS).
+# Politique + user-sim = Qwen (vrais candidats multiples) ; world-model = JEPA latent (jepa_tau2_align),
+# PAS le LLM. Le lookahead JEPA est LOCAL (aucun appel Qwen) → runs plus légers que le LLM-WM.
+#
+# Lancer les DEUX variantes (même config) :
+#   morpheus run --config configs/qwen_tau2_jepawm.yaml --no-world-model --out runs/tau2_retail_baseline
+#   morpheus run --config configs/qwen_tau2_jepawm.yaml               --out runs/tau2_retail_jepawm
+#
+# ⚠️ Mesure PAS encore équitable (retail exige des messages texte à l'utilisateur ; la politique
+# n'émet que des appels d'outils — cf. qwen_tau2.yaml). On mesure le MÉCANISME, pas un score absolu.
+
+policy:
+  kind: openai
+  model: Qwen/Qwen3-32B-AWQ
+  base_url: http://localhost:8000/v1
+  api_key_env: null
+  temperature: 0.7
+  max_tokens: 512
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# world_model LLM IGNORÉ quand jepa_wm.enabled — gardé pour compat de schéma.
+world_model:
+  kind: openai
+  model: Qwen/Qwen3-32B-AWQ
+  base_url: http://localhost:8000/v1
+  api_key_env: null
+  temperature: 0.3
+  max_tokens: 256
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+orchestrator:
+  k_candidates: 4
+  horizon: 1               # JepaWorldModel v0 : lookahead latent à 1 pas
+  max_turns: 16
+  surprise_threshold: 0.5
+  use_world_model: true
+  concurrency: 4
+
+jepa_wm:
+  enabled: true
+  checkpoint: checkpoints/jepa_tau2_align/jepa.pt   # signal goal VALIDÉ en-domaine (H1+H2 PASS)
+  device: cpu             # CPU : n'entre pas en contention VRAM avec le vLLM Qwen
+
+eval:
+  env: tau2
+  domain: retail
+  tau2_solo: false
+  tau2_max_steps: 40
+  tau2_user_llm: openai/Qwen/Qwen3-32B-AWQ
+  tau2_user_base_url: http://localhost:8000/v1
+  tau2_user_api_key_env: null
+  # Juge NL-assertions pointé sur le vLLM local (sinon reward retail = 0, gpt-4.1 par défaut →
+  # 404). 112/114 tâches retail ont NL_ASSERTION dans reward_basis → scoring fiable requis.
+  tau2_judge_llm: openai/Qwen/Qwen3-32B-AWQ
+  tau2_judge_base_url: http://localhost:8000/v1
+  tau2_judge_api_key_env: null
+  tasks: 8
+  turn_buckets: [4, 8, 12]
+  seed: 0
+  out_dir: runs/tau2_retail_jepawm

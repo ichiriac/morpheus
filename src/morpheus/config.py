@@ -67,6 +67,13 @@ class EvalConfig:
     tau2_user_llm: str | None = None      # modèle litellm du user-sim (ex. openai/Qwen/Qwen3-32B-AWQ)
     tau2_user_base_url: str | None = None # base_url du user-sim (ex. http://localhost:8000/v1)
     tau2_user_api_key_env: str | None = None
+    # Juge LLM des NL-assertions (calcul du reward retail/airline : 112/114 tâches retail ont
+    # NL_ASSERTION dans leur reward_basis → sans ce juge, reward = db × 0 = 0). Défaut τ² =
+    # gpt-4.1 (clé OpenAI). Renseigner pour le pointer sur le vLLM local (ex. mêmes valeurs que
+    # user-sim). ⚠️ Qwen jugeant Qwen est méthodologiquement faible : mesure indicative.
+    tau2_judge_llm: str | None = None     # ex. openai/Qwen/Qwen3-32B-AWQ
+    tau2_judge_base_url: str | None = None
+    tau2_judge_api_key_env: str | None = None
     # --- KB / RAG (orchestrator.use_rag) ---
     # Source du référentiel de vérité : les policy.md de τ². Si kb_policy_path est None, on
     # dérive `<tau2_data_dir|$TAU2_DATA_DIR|./tau2-bench/data>/tau2/domains/<domain>/policy.md`.
