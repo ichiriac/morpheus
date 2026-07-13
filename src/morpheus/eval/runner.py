@@ -52,19 +52,24 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
     with trace_path.open("w", encoding="utf-8") as f:
         for i in range(n_tasks):
             env = make_env(i)
+            final_reward = None
             try:
                 result = orch.run(env)
             finally:
-                # τ² : termine le thread orchestrateur si la boucle s'est arrêtée sans `done`.
+                # τ² : termine le thread orchestrateur si la boucle s'est arrêtée sans `done`, et
+                # récupère le reward FINAL (état DB) — sinon une tâche faite-mais-non-conclue au
+                # plafond de tours serait comptée échec à tort.
                 close = getattr(env, "close", None)
                 if callable(close):
-                    close()
+                    final_reward = close()
             bucket = env.required_turns()
-            metric.add(bucket, result.success)
+            # succès = la boucle a conclu avec succès, OU la terminaison forcée révèle une DB correcte.
+            success = bool(result.success or (final_reward is not None and final_reward >= 1.0 - 1e-9))
+            metric.add(bucket, success)
             # Progression en direct (suivi/arrêt anticipé) : une ligne par tâche, flushée.
             print(
                 f"[{tag}] {i + 1}/{n_tasks} · req={bucket} turns={result.turns} "
-                f"ok={result.success} · réussite {metric.n_success}/{metric.n} "
+                f"ok={success} · réussite {metric.n_success}/{metric.n} "
                 f"({metric.overall:.0%})",
                 flush=True,
             )
@@ -72,8 +77,9 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
                 "task": i,
                 "goal": env.goal(),   # persisté : requis pour rejouer score_to_goal (validation étape 4)
                 "required_turns": bucket,
-                "success": result.success,
+                "success": success,
                 "turns": result.turns,
+                "success_via_close": bool(not result.success and success),
                 "total_reward": result.total_reward,
                 "trace": [asdict(s) for s in result.trace],
             }, ensure_ascii=False) + "\n")

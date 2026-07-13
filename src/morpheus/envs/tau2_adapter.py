@@ -145,17 +145,21 @@ class Tau2Env:
     def required_turns(self) -> int:
         return self._required_turns
 
-    def close(self) -> None:
-        """Termine proprement l'orchestrateur τ² si morpheus s'est arrêté sans appeler `done`
-        (sinon le thread τ² reste bloqué en attente d'action)."""
+    def close(self) -> float | None:
+        """Termine l'épisode τ² si morpheus s'est arrêté sans `done` (plafond de tours) et
+        renvoie le reward FINAL. En τ² le reward = état de la DB à la fin, évalué même sur une
+        terminaison par cap ; l'ignorer sous-compterait les tâches faites-mais-non-conclues.
+        Renvoie None si l'épisode était déjà terminé (le reward a alors été rendu par `step`)."""
         gym = getattr(self, "_gym", None)
         if gym is None or self._done:
-            return
+            return None
+        reward = None
         try:
-            gym.step('{"name": "done", "arguments": {}}')
+            _obs, reward, _term, _trunc, _info = gym.step('{"name": "done", "arguments": {}}')
         except Exception:
-            pass
+            reward = None
         self._done = True
+        return float(reward) if reward is not None else None
 
 
 def _tool_signatures(tool_objs: list, extra_tools: list[str]) -> str:
