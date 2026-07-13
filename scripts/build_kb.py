@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-DEFAULT_DOMAINS = ["retail", "airline"]
+DEFAULT_DOMAINS = ["retail", "airline", "telecom"]
 
 # Emplacements possibles des données τ² (mêmes que agents/knowledge.locate_policy).
 import os
@@ -23,24 +23,53 @@ import os
 _DATA_ROOTS = [os.environ.get("TAU2_DATA_DIR"), str(REPO / "tau2-bench" / "data"),
                "/workspace/tau2-bench/data"]
 
+# Fichiers de connaissance par domaine (concaténés). retail/airline ont un `policy.md` ; telecom
+# (dual-control, pas de policy.md unique) → policy solo + le MANUEL de dépannage (« si X, fais Y »,
+# le vrai contenu à récupérer sur surprise).
+DOMAIN_SOURCES = {
+    "retail": ["policy.md"],
+    "airline": ["policy.md"],
+    "telecom": ["main_policy_solo.md", "tech_support_manual.md"],
+}
+# Domaines joués en SOLO : leurs outils (agent + device) viennent d'un reset gym solo, pas du
+# constructeur d'env (qui n'expose que les outils AGENT non-solo). En solo, pas de respond_to_user.
+SOLO_DOMAINS = {"telecom"}
 
-def _policy_path(domain: str) -> Path:
+
+def _domain_dir(domain: str) -> Path:
     for root in _DATA_ROOTS:
-        if not root:
-            continue
-        p = Path(root) / "tau2" / "domains" / domain / "policy.md"
-        if p.is_file():
-            return p
-    raise FileNotFoundError(f"policy.md introuvable pour {domain!r} (essayé {_DATA_ROOTS})")
+        if root and (Path(root) / "tau2" / "domains" / domain).is_dir():
+            return Path(root) / "tau2" / "domains" / domain
+    raise FileNotFoundError(f"domaine τ² {domain!r} introuvable (essayé {_DATA_ROOTS})")
+
+
+def _policy_text(domain: str) -> str:
+    d = _domain_dir(domain)
+    files = DOMAIN_SOURCES.get(domain, ["policy.md"])
+    parts = [(d / f).read_text(encoding="utf-8").rstrip() for f in files if (d / f).is_file()]
+    if not parts:
+        raise FileNotFoundError(f"aucune source de policy pour {domain!r} (cherché {files} dans {d})")
+    return "\n\n".join(parts)
+
+
+def _domain_tools(domain: str):
+    """Outils du domaine. Solo → reset gym (agent + device) ; sinon → constructeur d'env."""
+    from tau2.registry import registry
+
+    if domain in SOLO_DOMAINS:
+        from tau2.gym.gym_agent import AgentGymEnv
+
+        tasks = [t for t in registry.get_tasks_loader(domain)() if getattr(t, "ticket", None)]
+        env = AgentGymEnv(domain=domain, task_id=tasks[0].id, solo_mode=True, max_steps=5)
+        _obs, info = env.reset()
+        return info.get("tools", [])
+    return registry.get_env_constructor(domain)().get_tools()
 
 
 def _tool_signatures(domain: str) -> list[str]:
-    """`tool(arg1*, arg2) — description` pour chaque outil du domaine (via τ² registry)."""
-    from tau2.registry import registry
-
-    tools = registry.get_env_constructor(domain)().get_tools()
+    """`tool(arg1*, arg2) — description` pour chaque outil du domaine."""
     out: list[str] = []
-    for t in sorted(tools, key=lambda x: x.name):
+    for t in sorted(_domain_tools(domain), key=lambda x: x.name):
         sc = getattr(t, "openai_schema", None) or {}
         fn = sc.get("function", sc)
         params = fn.get("parameters") or {}
@@ -49,14 +78,14 @@ def _tool_signatures(domain: str) -> list[str]:
         sig = ", ".join((f"{p}*" if p in req else p) for p in props)
         desc = (fn.get("description") or "").strip().replace("\n", " ")
         out.append(f"`{t.name}({sig})`" + (f" — {desc[:120]}" if desc else ""))
-    # outil synthétique morpheus (non-solo) : parler à l'utilisateur.
-    out.append("`respond_to_user(text*)` — [outil morpheus] parler à l'utilisateur "
-               "(poser une question, confirmer) plutôt qu'appeler un outil.")
+    if domain not in SOLO_DOMAINS:  # outil synthétique morpheus (non-solo uniquement).
+        out.append("`respond_to_user(text*)` — [outil morpheus] parler à l'utilisateur "
+                   "(poser une question, confirmer) plutôt qu'appeler un outil.")
     return out
 
 
 def build_domain(domain: str) -> Path:
-    policy = _policy_path(domain).read_text(encoding="utf-8").rstrip()
+    policy = _policy_text(domain)
     sigs = _tool_signatures(domain)
     header = (
         f"<!-- Contenu RAG dérivé de tau2-bench (MIT © 2025 Sierra Research), domaine "
