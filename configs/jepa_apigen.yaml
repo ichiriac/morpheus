@@ -1,0 +1,34 @@
+# Vrai entraînement JEPA (Phase 2) sur APIGen-MT-5k avec encodeur sémantique.
+# E_state = sentence-transformers/all-MiniLM-L6-v2 (gelé, 384-dim). Le prédicteur P apprend
+# ŝ' = P(proj(E_state(s)), enc_action(E_state(a))) sur des transitions tool-use réelles.
+#
+# Lancé sur CPU (CUDA_VISIBLE_DEVICES="") pour ne pas entrer en contention avec le vLLM Qwen
+# qui réserve le GPU. MiniLM + MLP sont légers → quelques minutes.
+#
+#   CUDA_VISIBLE_DEVICES="" morpheus train-jepa --config configs/jepa_apigen.yaml
+
+source: hf:Salesforce/APIGen-MT-5k
+hf_split: train
+limit: null                 # tout le jeu (~5000 records → ~11k transitions)
+
+encoder: sentence_transformer
+encoder_model: sentence-transformers/all-MiniLM-L6-v2
+enc_dim: 384                # ignoré par sentence_transformer (déduit du modèle) ; indicatif
+
+latent_dim: 256
+action_dim: 128
+hidden: 512
+
+epochs: 40
+batch_size: 256
+lr: 0.0003
+weight_decay: 0.0001
+val_frac: 0.1
+seed: 0
+device: auto                # GPU si dispo (encodage MiniLM ~secondes)
+
+w_pred: 1.0
+w_var: 1.0
+w_cov: 0.04
+
+out_dir: checkpoints/jepa_apigen

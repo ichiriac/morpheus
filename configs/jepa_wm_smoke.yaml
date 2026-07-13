@@ -1,0 +1,35 @@
+# Smoke du world-model LATENT JEPA dans la boucle morpheus.
+# But : confirmer que JepaWorldModel (predict/score_to_goal/divergence/rollout) tourne en
+# drop-in dans loop.py SANS erreur, chargé depuis un vrai checkpoint. Politique = stub (rapide,
+# déterministe, sans vLLM). Le world_model LLM ci-dessous est IGNORÉ quand jepa_wm.enabled.
+#
+#   morpheus run --config configs/jepa_wm_smoke.yaml --out runs/jepa_wm_smoke
+
+policy:
+  kind: stub
+  model: stub
+
+world_model:
+  kind: stub
+  model: stub
+
+orchestrator:
+  k_candidates: 3
+  horizon: 1            # JepaWorldModel v0 : lookahead latent à 1 pas (horizon>1 ignoré)
+  max_turns: 8
+  surprise_threshold: 0.5
+  use_world_model: true
+  concurrency: 1
+
+jepa_wm:
+  enabled: true
+  checkpoint: checkpoints/jepa_apigen/jepa.pt
+  device: cpu          # évite la contention GPU avec le vLLM Qwen
+
+eval:
+  env: mock
+  domain: retail
+  tasks: 3
+  turn_buckets: [4, 8, 12]
+  seed: 0
+  out_dir: runs/jepa_wm_smoke
