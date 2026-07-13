@@ -31,7 +31,7 @@ Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Q
 ## État actuel
 
 - **Specs** `specs/00`→`05` (contexte, archi, bench, scaffold, RunPod+Qwen, entraînement JEPA).
-- **Code testé** : **29 tests verts** (les 2 tests torch tournent une fois torch installé). Boucle fermée MPC + LLM-as-world-model,
+- **Code testé** : **48 tests verts** (2026-07-13). Boucle fermée MPC + LLM-as-world-model,
   env mock, métrique réussite-vs-tours, connecteurs LLM (stub/vLLM/Anthropic), pipeline JEPA
   (data/encoders/model/losses/train), adaptateur τ²-bench (squelette `TODO(tau2)`),
   **KB/RAG gated par la surprise** (`agents/knowledge.py`, policies τ² → BM25).
@@ -43,8 +43,54 @@ Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Q
 - **Piste B avancée (2026-07-13)** : smoke `train-jepa` **converge** (val pred 0.254→0.062,
   `checkpoints/jepa/jepa.pt`) ; `inspect-data` sur `hf:Salesforce/APIGen-MT-5k` OK (44 transitions,
   normalisation `from_messages` correcte).
-- **Pas encore fait sur GPU** : vrai run JEPA (sentence_transformer + APIGen) puis run τ²-bench
-  avec `jepa_wm.enabled` (le `JepaWorldModel` est écrit et testé, reste à l'alimenter d'un vrai checkpoint).
+## 🔬 Bilan session 2026-07-13 (étape 3 + Phase 2) — LIRE AVANT DE REPRENDRE
+
+Longue session de mesure. Beaucoup d'infra + des **résultats négatifs solides** qui cadrent la suite.
+
+**A. Harnais τ²-bench rendu ÉQUITABLE (5 correctifs, tous committés + testés)** — trouvés en mesurant :
+1. Schémas d'outils exposés à la politique (`_tool_signatures`, vrais noms d'args) — sinon Qwen
+   invente les args → tout en erreur.
+2. Fuite de scénario supprimée (`goal()` non-solo = générique, plus `user_scenario`).
+3. Policy du domaine injectée en contexte système (au vrai PROPOSER, hors world-model).
+4. Mémoire multi-tours (scratchpad action→résultat) — sinon amnésie des résultats d'outils.
+5. Comptage du reward `close()` (état DB à la fin, même sur cap de tours).
+
+**B. Phase 1 — LLM-as-world-model = AUCUN GAIN (attendu, cf. specs « baseline à battre »).**
+   Politique ET WM = le même Qwen ⇒ le lookahead ≈ Qwen qui raisonne, ne bat pas le glouton.
+   Mock planning (obs ne révèle plus l'étape) : **baseline 100 % à 4/8/12** (Qwen lit le plan du goal),
+   WM **moins efficace** (10 tours pour une tâche de 4). Retail : **baseline ET WM ≈ 0 %**.
+
+**C. Retail = trop dur pour Qwen-32B nu : baseline 0/8** (harnais équitable, comptage close vérifié
+   `via_close=False`). L'agent atteint la phase d'action mais ses mutations ne produisent pas l'état
+   DB cible. ⇒ pas de trajectoires τ² réussies disponibles.
+
+**D. Phase 2 — JEPA entraîné + câblé, MAIS signal goal DÉGÉNÉRÉ (le vrai nœud).**
+   - `configs/jepa_apigen.yaml` : JEPA réel sur APIGen-MT-5k (21106 transitions, 40 ép., val pred
+     0.016). Checkpoint `checkpoints/jepa_apigen/jepa.pt` (compat `JepaWorldModel`).
+   - `JepaWorldModel` fonctionnel en drop-in (`configs/jepa_wm_smoke.yaml`) : predict 256d,
+     score/divergence ∈ [0,1], rollout OK, `loop.py` inchangé.
+   - **PROBLÈME** : `score_to_goal` **ne discrimine rien** — étendue **0.0086** sur textes très
+     contrastés (état-but 0.993 … charabia 0.984). Espace latent NON goal-relative (embeddings
+     sentence-transformer anisotropes + `proj` entraîné seulement sur la perte de prédiction).
+     ⇒ sélection MPC au niveau du bruit. C'est ce que `scripts/validate_goal_signal.py` (H1/H2)
+     prédit en échec.
+
+### ➡️ Reprise Phase 2 — deux chantiers couplés (décision : consolidé, à attaquer à froid)
+
+- [ ] **FIX DU SIGNAL GOAL (cœur scientifique)** : rendre le latent goal-relative — prédicteur
+      conditionné `P(z, a, g)` OU terme d'alignement but↔état-terminal dans la perte
+      (`jepa/model.py` + `jepa/losses.py` + `jepa/train.py`), réentraîner, re-tester la
+      discrimination de `score_to_goal` (viser une étendue franche, pas 0.0086). Itération rapide
+      (entraînement GPU ~1 min une fois la VRAM libre).
+- [ ] **DÉBLOCAGE DONNÉES** : générer des trajectoires τ² **réussies** (rejouer les
+      `evaluation_criteria.actions` de référence = positifs ; échecs de Qwen = négatifs) pour faire
+      tourner `validate_goal_signal.py` (H1 monotonie, H2 séparation) sur du VRAI (mock disqualifié :
+      token-leak du but).
+- [ ] Ensuite seulement : mesure baseline vs JEPA-WM sur un régime discriminant.
+
+**État env en fin de session** : le **serveur vLLM est ARRÊTÉ** (je l'ai stoppé pour libérer la VRAM
+et entraîner JEPA sur GPU). Le relancer pour toute mesure LLM (cf. Journal §5). Le checkpoint JEPA et
+le clone `tau2-bench` sont sur `/workspace` (persistants).
 
 ## ⚠️ Journal d'environnement — NE PAS re-découvrir
 
