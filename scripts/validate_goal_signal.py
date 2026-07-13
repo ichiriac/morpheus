@@ -119,7 +119,8 @@ def load_trajectories(args) -> list[dict]:
                     continue
                 ep = json.loads(line)
                 states = [s.get("real_state", "") for s in ep.get("trace", [])]
-                key = f"{src}#{ep.get('task', i)}"
+                # clé stable = nom du run (dossier) + index de tâche, indépendante du chemin passé
+                key = f"{Path(src).parent.name}#{ep.get('task', i)}"
                 anns = labels.get(key, [])
                 trajs.append({
                     "id": key,
@@ -256,7 +257,9 @@ def main(argv=None) -> int:
         else:
             compute_scores(trajs, args.checkpoint)
 
-    print(f"\n=== Corpus === trajectoires={n_total} | avec goal={n_goal} | résolues={n_succ}")
+    n_ann = sum(len(t.get("annotations", [])) for t in trajs)
+    print(f"\n=== Corpus === trajectoires={n_total} | avec goal={n_goal} | résolues={n_succ}"
+          f" | annotations H3 jointes={n_ann}")
     if args.checkpoint:
         print(f"    JEPA : {args.checkpoint}")
 

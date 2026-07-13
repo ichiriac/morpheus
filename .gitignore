@@ -19,6 +19,8 @@ env/
 runs/
 *.jsonl
 !specs/**/*.jsonl
+# annotations manuelles ERREUR/NOUVEAUTÉ (H3) — versionnées malgré *.jsonl
+!data/annotations/*.jsonl
 checkpoints/
 *.pt
 *.ckpt
