@@ -15,14 +15,22 @@ from ..envs import build_env_factory
 from ..llm import build_llm
 from ..orchestrator.loop import Orchestrator
 from .metrics import SuccessVsTurns, summarize
+from .report import _now_iso, write_reports
 
 
 def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
+    started_at = _now_iso()
     policy_llm = build_llm(cfg.policy)
     wm_llm = build_llm(cfg.world_model)
 
     policy = Policy(policy_llm, k=cfg.orchestrator.k_candidates)
-    world_model = WorldModel(wm_llm)
+    # World-model : LLM par défaut ; JEPA latent seulement si activé (torch importé à ce moment).
+    if cfg.jepa_wm.enabled:
+        from ..agents.jepa_world_model import JepaWorldModel
+
+        world_model = JepaWorldModel(cfg.jepa_wm.checkpoint, device=cfg.jepa_wm.device)
+    else:
+        world_model = WorldModel(wm_llm)
 
     kb: KnowledgeBase | None = None
     if cfg.orchestrator.use_rag:
@@ -65,4 +73,6 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
     (out / "config.json").write_text(
         json.dumps(cfg.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    # Résultats mis de côté en markdown : rapport par-run + journal cumulatif BENCHMARKS.md.
+    write_reports(cfg, metric, out, started_at)
     return metric

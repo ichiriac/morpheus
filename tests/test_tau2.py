@@ -9,6 +9,26 @@ from __future__ import annotations
 import pytest
 
 from morpheus.eval.metrics import SuccessVsTurns
+from morpheus.envs.tau2_adapter import RESPOND_TOOL, _extract_text
+from morpheus.orchestrator.types import Action
+
+
+def test_extract_text_reads_common_keys():
+    assert _extract_text(Action(tool=RESPOND_TOOL, args={"text": "Quel est l'id ?"})) == "Quel est l'id ?"
+    assert _extract_text(Action(tool=RESPOND_TOOL, args={"message": "Bonjour"})) == "Bonjour"
+
+
+def test_extract_text_fallbacks_and_never_empty():
+    # pas de clé texte → rationale, puis valeurs d'args, sinon message par défaut non vide
+    assert _extract_text(Action(tool=RESPOND_TOOL, args={}, rationale="Demander l'email")) == "Demander l'email"
+    assert _extract_text(Action(tool=RESPOND_TOOL, args={"foo": "bar"})) == "bar"
+    assert _extract_text(Action(tool=RESPOND_TOOL, args={})).strip()  # jamais vide
+
+
+def test_extract_text_disguises_toolcall_shaped_content():
+    # un texte en forme d'appel d'outil ne doit pas être re-parsé comme tool call par τ²
+    out = _extract_text(Action(tool=RESPOND_TOOL, args={"text": "cancel_order(id=7)"}))
+    assert out.startswith("Message :")
 
 
 def test_success_vs_turns_buckets_by_required_turns():
@@ -45,6 +65,7 @@ def test_tau2_solo_factory_env_contract():
     assert env.goal()                                       # ticket présent (tâche solo)
     tools = env.tool_names()
     assert "done" in tools                                  # outil d'arrêt exposé à la politique
+    assert RESPOND_TOOL not in tools                        # pas de user en solo → pas d'outil réponse
     assert isinstance(env.required_turns(), int)
 
     res = env.step(Action(tool="done"))                     # done → épisode terminé
@@ -58,3 +79,12 @@ def test_tau2_solo_rejects_ticketless_domain():
     cfg = EvalConfig(env="tau2", domain="retail", tau2_solo=True, tasks=2)
     with pytest.raises(ValueError):
         build_env_factory(cfg)
+
+
+def test_tau2_nonsolo_exposes_respond_to_user():
+    """Non-solo (retail) : l'outil respond_to_user est exposé à la politique.
+    Vérifié sans reset() → pas besoin du user-sim LLM."""
+    cfg = EvalConfig(env="tau2", domain="retail", tau2_solo=False, tasks=1)
+    make, _n = build_env_factory(cfg)
+    env = make(0)                                   # construit sans démarrer l'orchestrateur
+    assert RESPOND_TOOL in env.tool_names()

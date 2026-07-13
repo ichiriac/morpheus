@@ -161,30 +161,37 @@ pytest -q                                                      # doit passer les
 - [x] **Smoke end-to-end** : `morpheus run … qwen_tau2_telecom_solo` pilote τ² de bout en bout,
       Qwen émet de vrais appels d'outils τ² (args réels), reward calculé, threads nettoyés.
 
-### ⚠️ Reste pour une MESURE ÉQUITABLE sur retail (bloc de l'étape 3)
+### Mesure équitable retail — capacité dialogue FAITE (2026-07-13)
 
 Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo ; il faut le
-**user-sim** (non-solo). Or la politique de morpheus **n'émet que des appels d'outils**, jamais de
-message texte à l'utilisateur → les tâches retail qui exigent un dialogue (demander l'id de
-commande, confirmer un remboursement…) sont pénalisées. Le pipeline tourne (`configs/qwen_tau2.yaml`)
-mais la mesure n'est pas encore juste. Le seul domaine solo clé-en-main (telecom) a des tâches
-trop courtes (0–2 actions) → courbe plate. **Décision à prendre pour l'étape 3** :
+**user-sim** (non-solo). La politique de morpheus n'émettait que des appels d'outils.
 
-- [ ] **(recommandé)** Ajouter à l'orchestrateur une action « répondre à l'utilisateur » (message
-      texte, en plus des appels d'outils) → débloque retail non-solo, fidèle à la thèse 8+ tours.
-      Touche `policy.py` (émettre un message) + `loop.py`/`Action` (type message) + adaptateur
-      (passer le texte à `gym.step`). ~sous-chantier dédié.
-- [ ] Alternative de repli : mesurer d'abord en tool-only sur retail (biais assumé, borne basse)
-      pour valider les courbes baseline-vs-WM avant d'investir la capacité dialogue.
-- [ ] Corriger aussi le placeholder `ARGS` dans `policy._SYS` (args réels) — visible dès telecom.
+- [x] **Action « répondre à l'utilisateur » ajoutée** (`respond_to_user`) : outil SYNTHÉTIQUE
+      exposé par l'adaptateur en mode non-solo (`tool_names += respond_to_user`). `step()`
+      l'intercepte et envoie le TEXTE (pas un appel d'outil) à `gym.step` → τ² le route vers le
+      user-sim, dont la réponse devient l'observation suivante. **`loop.py` inchangé** (la capacité
+      vit à la frontière env). Helpers testés offline (`_extract_text`). Hint ajouté à `policy._SYS`.
+- [x] **User-sim câblé sur le vLLM Qwen** (litellm `openai/…` + `api_base`) ; `<think>` coupé côté
+      user-sim (`extra_body.chat_template_kwargs.enable_thinking=false`).
+- [x] **Vérifié end-to-end** : smoke retail non-solo → Qwen appelle `respond_to_user`, le user-sim
+      répond (`user: …`, sans `<think>`), dialogue multi-tours réel. (0% sur 2-3 tâches K=2/H=1 :
+      normal, ce n'est pas encore la vraie mesure — juste la preuve que le dialogue tourne.)
+- [x] `policy._SYS` : placeholder `ARGS` remplacé par « vrais arguments » (le point telecom).
+- [ ] **Reste** : injecter la *policy* du domaine dans le contexte (règles retail) pour une
+      réussite crédible — aujourd'hui `goal()` = ticket/scénario seul (choisi pour ne pas gonfler
+      les prompts K·H). À arbitrer avant la mesure de l'étape 3.
 
 ## Étape 3 — mesures de référence (livrable Phase 1)
 
+> **Archivage des résultats FAIT** : chaque `morpheus run` écrit `<out_dir>/results.md` (courbe +
+> métadonnées) et **ajoute une ligne à `BENCHMARKS.md`** (journal cumulatif versionné, racine repo).
+> Cf. `eval/report.py`. Il suffit de lancer les runs ci-dessous, les courbes s'y consignent seules.
+
 - [ ] Courbe **réussite-vs-tours** sur τ²-bench retail : `Qwen nu (--no-world-model)` vs
-      `Qwen + LLM-as-world-model`.
+      `Qwen + LLM-as-world-model` (config `qwen_tau2.yaml`, éventuellement policy domaine injectée).
 - [ ] Ligne de référence **Sonnet 4.6** : `configs/reference_sonnet.yaml` (`kind: anthropic`,
       `ANTHROPIC_API_KEY`), même sous-ensemble de tâches.
-- [ ] Consigner les 3 courbes.
+- [ ] Consigner les 3 courbes (auto-agrégées dans `BENCHMARKS.md`).
 - [ ] **Exporter les rollouts τ²-bench** (`to_jsonl`) → fine-tune JEPA dessus (`source: jsonl:<path>`).
 
 ## Étape 4 — wiring JEPA dans la boucle + Phases 3/4

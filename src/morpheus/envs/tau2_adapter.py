@@ -36,6 +36,16 @@ from ..orchestrator.types import Action, Observation, StepResult
 # Marqueurs heuristiques d'échec d'outil (instrumentation du routeur de surprise, Phase 1).
 _ERROR_MARKERS = ("error", "erreur", "not found", "invalid", "failed", "exception", "cannot")
 
+# Outil SYNTHÉTIQUE « répondre à l'utilisateur » (étape 3). En mode non-solo (retail/airline),
+# certaines tâches exigent un vrai dialogue : demander l'id de commande, confirmer un
+# remboursement… La politique de morpheus n'émet que des appels d'outils ; on lui expose donc
+# cet outil supplémentaire. `step()` l'intercepte et envoie le TEXTE (pas un appel d'outil) à
+# `gym.step`, que τ² route vers le simulateur d'utilisateur — dont la réponse devient
+# l'observation suivante. `loop.py` ne change pas : la capacité vit à la frontière env, là où un
+# utilisateur existe réellement (donc PAS en solo).
+RESPOND_TOOL = "respond_to_user"
+_TEXT_KEYS = ("text", "message", "content", "reply", "msg")
+
 
 class Tau2Env:
     """Enveloppe une tâche τ²-bench derrière l'interface `Env` de morpheus."""
@@ -57,6 +67,8 @@ class Tau2Env:
         self._task_id = task_id
         self._solo = solo
         self._required_turns = required_turns
+        # « répondre à l'utilisateur » : pertinent uniquement quand un user-sim existe (non-solo).
+        self._extra_tools: list[str] = [] if solo else [RESPOND_TOOL]
         self._gym = AgentGymEnv(
             domain=domain,
             task_id=task_id,
@@ -82,8 +94,14 @@ class Tau2Env:
         if self._done:
             return StepResult(Observation("épisode terminé"), 0.0, True, {"success": False})
 
-        payload = json.dumps({"name": action.tool, "arguments": action.args or {}})
-        obs, reward, terminated, _truncated, info = self._gym.step(payload)
+        if action.tool == RESPOND_TOOL and not self._solo:
+            # message texte à l'utilisateur : τ² route le CONTENU (pas un appel d'outil) vers le
+            # simulateur d'utilisateur ; sa réponse revient comme observation suivante.
+            gym_action = _extract_text(action)
+        else:
+            gym_action = json.dumps({"name": action.tool, "arguments": action.args or {}})
+
+        obs, reward, terminated, _truncated, info = self._gym.step(gym_action)
 
         self._done = bool(terminated)
         reward = float(reward)
@@ -99,7 +117,7 @@ class Tau2Env:
         return self._goal
 
     def tool_names(self) -> list[str]:
-        return self._tools
+        return self._tools + self._extra_tools
 
     def required_turns(self) -> int:
         return self._required_turns
@@ -122,6 +140,29 @@ def _looks_like_error(obs: str | None) -> bool:
         return False
     low = obs.lower()
     return any(m in low for m in _ERROR_MARKERS)
+
+
+def _extract_text(action: Action) -> str:
+    """Texte du message `respond_to_user`. On lit une clé d'args plausible (text/message/…),
+    sinon le rationale, sinon les valeurs d'args concaténées. On garantit un contenu NON vide et
+    qui ne ressemble pas à un appel d'outil (sinon τ² le re-parserait en tool call)."""
+    args = action.args or {}
+    text = ""
+    for k in _TEXT_KEYS:
+        v = args.get(k)
+        if isinstance(v, str) and v.strip():
+            text = v.strip()
+            break
+    if not text and action.rationale.strip():
+        text = action.rationale.strip()
+    if not text and args:
+        text = " ".join(str(v) for v in args.values() if str(v).strip())
+    if not text:
+        text = "Pouvez-vous préciser votre demande ?"
+    # évite qu'un texte de forme `foo(...)` soit interprété comme un appel d'outil par τ².
+    if text.endswith(")") and "(" in text:
+        text = f"Message : {text}"
+    return text
 
 
 def _build_goal(task) -> str:
@@ -195,6 +236,9 @@ def build_tau2_factory(cfg: EvalConfig):
             user_llm_args["api_base"] = cfg.tau2_user_base_url
         key = os.environ.get(cfg.tau2_user_api_key_env) if cfg.tau2_user_api_key_env else None
         user_llm_args["api_key"] = key or "EMPTY"
+        # user-sim Qwen : couper le mode « thinking » (sinon les réponses user sont polluées par
+        # des blocs <think>). extra_body est transmis tel quel par litellm à l'endpoint vLLM.
+        user_llm_args["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
 
     def make(task_index: int) -> Tau2Env:
         task_id, req_turns = ids_turns[task_index % len(ids_turns)]

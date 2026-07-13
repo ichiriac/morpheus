@@ -16,7 +16,11 @@ _SYS = (
     "Contraintes STRICTES :\n"
     "- N'utilise QUE des outils de la liste fournie (noms exacts).\n"
     "- Une action par ligne, format exact : "
-    "`ACTION: <nom_outil> | ARGS: {\"clef\": \"valeur\"}`.\n"
+    "`ACTION: <nom_outil> | ARGS: {\"arg\": valeur}`.\n"
+    "- ARGS = les VRAIS arguments de l'outil (vrais noms, vraies valeurs tirées de l'objectif "
+    "et de l'état), objet JSON — pas de placeholder.\n"
+    "- Si l'outil `respond_to_user` est proposé, c'est pour PARLER à l'utilisateur (demander une "
+    "info manquante, confirmer) : `ACTION: respond_to_user | ARGS: {\"text\": \"...\"}`.\n"
     "- Pas de texte autour, pas de numérotation, pas de commentaire."
 )
 
