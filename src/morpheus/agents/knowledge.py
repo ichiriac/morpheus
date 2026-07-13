@@ -160,10 +160,12 @@ _DOMAINS = ("retail", "telecom", "airline", "mock")
 
 def locate_policy(domain: str, explicit: str | None = None,
                   data_dir: str | None = None) -> Path:
-    """Trouve le `policy.md` d'un domaine τ². Ordre d'essai :
+    """Trouve le contenu KB d'un domaine. Ordre d'essai :
     1. `explicit` (chemin direct fourni en config) ;
-    2. `data_dir`, puis `$TAU2_DATA_DIR`, puis `./tau2-bench/data` — pattern
-       `<data>/tau2/domains/<domain>/policy.md`.
+    2. **`data/kb/<domaine>.md`** — contenu RAG VERSIONNÉ dans le repo (policy + signatures
+       d'outils, généré par `scripts/build_kb.py`) : préféré → reproductible, sans dépendance τ² ;
+    3. `data_dir`, puis `$TAU2_DATA_DIR`, puis `./tau2-bench/data` — le `policy.md` τ² brut, en
+       repli si le KB versionné n'a pas encore été généré.
     Lève une erreur claire listant les chemins essayés si rien n'est trouvé.
     """
     if explicit:
@@ -173,6 +175,13 @@ def locate_policy(domain: str, explicit: str | None = None,
         raise FileNotFoundError(f"kb_policy_path introuvable : {p}")
 
     tried: list[Path] = []
+    # 2. KB versionné (repo) — relatif au CWD ; couvre aussi l'exécution depuis la racine repo.
+    versioned = Path("data") / "kb" / f"{domain}.md"
+    tried.append(versioned)
+    if versioned.is_file():
+        return versioned
+
+    # 3. repli : policy.md τ² brut.
     roots = [data_dir, os.environ.get("TAU2_DATA_DIR"), "tau2-bench/data"]
     for root in roots:
         if not root:
@@ -182,8 +191,8 @@ def locate_policy(domain: str, explicit: str | None = None,
         if cand.is_file():
             return cand
     raise FileNotFoundError(
-        f"policy.md introuvable pour le domaine {domain!r}. Chemins essayés : "
+        f"contenu KB introuvable pour le domaine {domain!r}. Chemins essayés : "
         + ", ".join(str(t) for t in tried)
-        + ". Renseigner eval.kb_policy_path ou eval.tau2_data_dir (ou $TAU2_DATA_DIR), "
-        "ou cloner github.com/sierra-research/tau2-bench dans ./tau2-bench."
+        + ". Générer `data/kb/<domaine>.md` via `python scripts/build_kb.py`, ou renseigner "
+        "eval.kb_policy_path / eval.tau2_data_dir (ou $TAU2_DATA_DIR)."
     )
