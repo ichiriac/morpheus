@@ -9,8 +9,32 @@ from __future__ import annotations
 import pytest
 
 from morpheus.eval.metrics import SuccessVsTurns
-from morpheus.envs.tau2_adapter import RESPOND_TOOL, _extract_text
+from morpheus.envs.tau2_adapter import RESPOND_TOOL, _build_goal, _extract_text
 from morpheus.orchestrator.types import Action
+
+
+class _FakeScenario:
+    def __str__(self) -> str:  # simule str(UserScenario) : contient le brief PRIVÉ
+        return "reason_for_call: SECRET · unknown_info: à découvrir · task_instructions: ..."
+
+
+class _FakeTask:
+    ticket = None
+    user_scenario = _FakeScenario()
+
+
+def test_nonsolo_goal_does_not_leak_user_scenario():
+    """Non-solo : le but ne doit contenir AUCUNE info privée du scénario utilisateur."""
+    g = _build_goal(_FakeTask(), solo=False, domain="retail")
+    assert "SECRET" not in g and "unknown_info" not in g and "task_instructions" not in g
+    assert "retail" in g and "respond_to_user" in g   # instruction générique attendue
+
+
+def test_solo_goal_uses_ticket():
+    class _T:
+        ticket = "Faire X puis Y"
+        user_scenario = _FakeScenario()
+    assert _build_goal(_T(), solo=True, domain="telecom") == "Faire X puis Y"
 
 
 def test_extract_text_reads_common_keys():

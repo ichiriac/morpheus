@@ -177,9 +177,31 @@ Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo 
       répond (`user: …`, sans `<think>`), dialogue multi-tours réel. (0% sur 2-3 tâches K=2/H=1 :
       normal, ce n'est pas encore la vraie mesure — juste la preuve que le dialogue tourne.)
 - [x] `policy._SYS` : placeholder `ARGS` remplacé par « vrais arguments » (le point telecom).
-- [ ] **Reste** : injecter la *policy* du domaine dans le contexte (règles retail) pour une
-      réussite crédible — aujourd'hui `goal()` = ticket/scénario seul (choisi pour ne pas gonfler
-      les prompts K·H). À arbitrer avant la mesure de l'étape 3.
+- [x] **FUITE D'INFO CORRIGÉE (2026-07-13)** : `_build_goal` renvoyait `str(user_scenario)` en
+      non-solo. Or `UserScenario` = « All the information that will be sent to the user simulator »
+      (persona, reason_for_call, **unknown_info** = ce que l'agent doit découvrir, task_instructions).
+      Le vrai agent τ² ne voit QUE `domain_policy + agent_instruction`, jamais le scénario → l'injecter
+      **gonflait** la mesure (le but contenait la réponse ; `score_to_goal` trivialement aligné) et la
+      rendait non comparable au leaderboard. **Fix** : non-solo `goal()` = instruction GÉNÉRIQUE
+      (aucun besoin utilisateur) ; le besoin émerge du dialogue (observations). Solo garde le `ticket`
+      (brief légitime). Test de non-régression `test_nonsolo_goal_does_not_leak_user_scenario`.
+
+### ⚠️ À TRANCHER avant la mesure de l'étape 3
+
+Deux questions couplées, ouvertes par le fix ci-dessus :
+
+1. **Policy du domaine** — le vrai agent τ² a la policy complète en système ; morpheus ne l'a plus
+   (goal générique). Sans elle, morpheus est *sous-informé* (règles retail inconnues) → toujours pas
+   comparable au leaderboard, biais inverse. Options : (a) **contexte système dédié** dans `policy.py`
+   = policy du domaine (fidèle à τ², la garder HORS du prompt world-model pour borner le coût) ;
+   (b) s'appuyer sur le **RAG existant** (`knowledge.py`, policy.md → BM25, gated surprise) ;
+   (c) policy entière dans `goal()` (simple mais gonfle les prompts K·H). *Reco : (a).*
+2. **Formation du but latent `g` en non-solo** — le world-model veut un `g` concret, mais en non-solo
+   il n'existe aucun but légitime a priori : il doit **émerger du dialogue**. Options : (a) `g`
+   statique générique (signal `score_to_goal` faible mais honnête) ; (b) `g` **dynamique** distillé de
+   la conversation une fois le besoin révélé (met à jour `state.goal` en cours d'épisode → vrai signal
+   MPC, fidèle à « le but émerge du dialogue » ; touche `loop.py`/l'orchestrateur). *Reco : (a)
+   d'abord pour débloquer une mesure, (b) comme raffinement une fois JEPA branché.*
 
 ## Étape 3 — mesures de référence (livrable Phase 1)
 

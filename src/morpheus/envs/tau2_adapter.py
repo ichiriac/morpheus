@@ -85,7 +85,7 @@ class Tau2Env:
     def reset(self) -> Observation:
         obs, info = self._gym.reset()
         self._tools = [t.name for t in info.get("tools", [])]
-        self._goal = _build_goal(info.get("task"))
+        self._goal = _build_goal(info.get("task"), self._solo, self._domain)
         self._done = False
         # En solo, l'observation initiale est vide (le ticket est porté par goal()).
         return Observation(text=obs or "(nouvelle tâche — voir l'objectif)")
@@ -165,17 +165,32 @@ def _extract_text(action: Action) -> str:
     return text
 
 
-def _build_goal(task) -> str:
-    """Objectif présenté à la politique. En solo : le `ticket` (format pensé pour l'agent seul).
-    Sinon : les instructions du scénario utilisateur. La *policy* du domaine (longue) n'est PAS
-    injectée ici pour ne pas gonfler chaque prompt K·H — piste de réglage ultérieure."""
-    if task is None:
-        return "Résoudre la tâche."
-    ticket = getattr(task, "ticket", None)
-    if ticket:
-        return str(ticket)
-    scenario = getattr(task, "user_scenario", None)
-    return str(scenario) if scenario is not None else "Résoudre la tâche."
+# Instruction générique de l'agent en NON-SOLO (aucune fuite du besoin utilisateur). Miroir de
+# l'AGENT_INSTRUCTION de τ² : le vrai agent ne voit que la policy + les outils, jamais le scénario.
+_NONSOLO_GOAL = (
+    "Tu es un agent de service client du domaine {domain}. Aide l'utilisateur à résoudre sa "
+    "demande en respectant la politique du domaine et en utilisant les outils. Son besoin n'est "
+    "PAS connu d'avance : découvre-le par le dialogue (pose des questions via `respond_to_user`), "
+    "vérifie l'identité si nécessaire, puis agis. Termine avec l'outil `done` une fois la demande "
+    "résolue."
+)
+
+
+def _build_goal(task, solo: bool, domain: str = "") -> str:
+    """Objectif présenté à la politique.
+
+    - **solo** : le `ticket` — brief LÉGITIMEMENT donné à l'agent seul (comme dans τ²).
+    - **non-solo** : instruction GÉNÉRIQUE uniquement. ⚠️ NE JAMAIS injecter `user_scenario` :
+      c'est le brief PRIVÉ de l'utilisateur (persona, reason_for_call, known/unknown_info,
+      task_instructions) — « All the information that will be sent to the user simulator ».
+      L'exposer à la politique = fuite : le but contiendrait la réponse, `score_to_goal` serait
+      trivialement aligné, et la mesure ne serait pas comparable au leaderboard τ². Le besoin
+      doit émerger du dialogue (observations), pas du scénario.
+    """
+    if solo:
+        ticket = getattr(task, "ticket", None) if task is not None else None
+        return str(ticket) if ticket else "Résoudre le ticket."
+    return _NONSOLO_GOAL.format(domain=domain or "service client")
 
 
 def _num_agent_actions(task) -> int:
