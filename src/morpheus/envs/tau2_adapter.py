@@ -80,15 +80,21 @@ class Tau2Env:
         self._tools: list[str] = []
         self._goal: str = ""
         self._policy_text: str = ""
+        self._tool_sig: str = ""
         self._done: bool = False
 
     # --- API Env ---
     def reset(self) -> Observation:
         obs, info = self._gym.reset()
-        self._tools = [t.name for t in info.get("tools", [])]
+        tool_objs = info.get("tools", [])
+        self._tools = [t.name for t in tool_objs]
         self._goal = _build_goal(info.get("task"), self._solo, self._domain)
         # Manuel LÉGITIME de l'agent (ce que le vrai agent τ² a en système) : la policy du domaine.
         self._policy_text = info.get("policy") or ""
+        # Signatures d'outils (vrais noms d'arguments) : le vrai agent τ² les a nativement via
+        # function-calling. Sans elles, la politique invente les noms d'args → outils en erreur
+        # (« got an unexpected keyword argument »). Injectées dans system_context (pas les rollouts).
+        self._tool_sig = _tool_signatures(tool_objs, self._extra_tools)
         self._done = False
         # En solo, l'observation initiale est vide (le ticket est porté par goal()).
         return Observation(text=obs or "(nouvelle tâche — voir l'objectif)")
@@ -120,9 +126,18 @@ class Tau2Env:
         return self._goal
 
     def system_context(self) -> str | None:
-        """Policy du domaine — manuel légitime de l'agent (le vrai agent τ² l'a en système).
-        Injectée au vrai pas PROPOSER seulement (cf. Policy.propose), pas dans le world-model."""
-        return self._policy_text or None
+        """Manuel légitime de l'agent (ce que le vrai agent τ² a en système) : policy du domaine
+        + SIGNATURES des outils (vrais noms d'arguments). Injecté au vrai pas PROPOSER seulement
+        (cf. Policy.propose), pas dans le world-model (prompts K·H bornés)."""
+        parts: list[str] = []
+        if self._policy_text:
+            parts.append(self._policy_text)
+        if self._tool_sig:
+            parts.append(
+                "SIGNATURES DES OUTILS — utilise EXACTEMENT ces noms d'arguments (* = requis) :\n"
+                + self._tool_sig
+            )
+        return "\n\n".join(parts) or None
 
     def tool_names(self) -> list[str]:
         return self._tools + self._extra_tools
@@ -141,6 +156,31 @@ class Tau2Env:
         except Exception:
             pass
         self._done = True
+
+
+def _tool_signatures(tool_objs: list, extra_tools: list[str]) -> str:
+    """Signatures compactes des outils τ² : `nom(arg1*, arg2, …) — description`.
+    Tire les VRAIS noms d'arguments du schéma OpenAI de chaque `Tool` (`openai_schema`),
+    `*` marquant les requis. Robuste si un outil n'expose pas de schéma (fallback `nom(...)`)."""
+    lines: list[str] = []
+    for t in tool_objs:
+        try:
+            sc = getattr(t, "openai_schema", None) or {}
+            fn = sc.get("function", sc)
+            params = fn.get("parameters") or {}
+            props = list((params.get("properties") or {}).keys())
+            req = set(params.get("required") or [])
+            sig = ", ".join((f"{p}*" if p in req else p) for p in props)
+            desc = (fn.get("description") or "").strip().replace("\n", " ")
+            line = f"- {t.name}({sig})"
+            if desc:
+                line += f" — {desc[:90]}"
+            lines.append(line)
+        except Exception:
+            lines.append(f"- {getattr(t, 'name', '?')}(...)")
+    if RESPOND_TOOL in extra_tools:
+        lines.append(f"- {RESPOND_TOOL}(text*) — parler à l'utilisateur (poser une question, confirmer)")
+    return "\n".join(lines)
 
 
 def _looks_like_error(obs: str | None) -> bool:
