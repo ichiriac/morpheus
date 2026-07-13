@@ -31,6 +31,10 @@ class Transition:
     next_obs: str                  # état résultant (réponse d'outil / observation suivante)
     reward: float = 0.0
     done: bool = False
+    # --- signal goal-relative (Phase 2, fix du signal goal) ---
+    goal: str = ""                 # objectif de la trajectoire (requête user / état résolu visé)
+    progress: float = 0.0          # position normalisée dans la trajectoire ∈ [0,1] (0=début, 1=résolu)
+    traj_id: int = -1              # identité de la trajectoire (groupe les pas ; négatifs InfoNCE)
     meta: dict[str, Any] = field(default_factory=dict)
 
     def is_valid(self) -> bool:
@@ -53,6 +57,9 @@ def synthetic_transitions(n_episodes: int = 50, seed: int = 0) -> list[Transitio
     for ep in range(n_episodes):
         length = 2 + (ep % (len(_CHAIN) - 1))  # 2..len
         chain = _CHAIN[:length]
+        # objectif de la trajectoire : l'état résolu visé (dernière étape). Diffère par
+        # chaîne d'outils → le signal goal-relative ne peut PAS se réduire au n° de ticket.
+        goal = f"Objectif ticket #{ep} : exécuter {chain[-1]} et résoudre la demande."
         obs = f"Ticket #{ep}. Prochaine étape attendue : {chain[0]}."
         for i, tool in enumerate(chain):
             done = i == length - 1
@@ -63,7 +70,9 @@ def synthetic_transitions(n_episodes: int = 50, seed: int = 0) -> list[Transitio
             )
             out.append(Transition(
                 obs=obs, action=f"{tool}()", next_obs=nxt,
-                reward=1.0 if done else 0.1, done=done, meta={"episode": ep, "step": i},
+                reward=1.0 if done else 0.1, done=done,
+                goal=goal, progress=(i + 1) / length, traj_id=ep,
+                meta={"episode": ep, "step": i},
             ))
             obs = nxt
     return out
@@ -106,15 +115,24 @@ def _extract_action(role: str, content: str, tool_calls: Any) -> str | None:
     return None
 
 
-def from_messages(messages: Iterable[dict], reward_key: str | None = None) -> list[Transition]:
-    """Parcourt une conversation et émet une transition par (contexte → appel → réponse)."""
+def from_messages(messages: Iterable[dict], reward_key: str | None = None,
+                  traj_id: int = -1) -> list[Transition]:
+    """Parcourt une conversation et émet une transition par (contexte → appel → réponse).
+
+    Le `goal` de la trajectoire = la 1re requête utilisateur (façon τ² : l'objectif est donné
+    en tête, PAS l'état terminal → pas de token-leak). `progress` = position normalisée du pas
+    dans la conversation (0=début … 1=résolu), pour l'alignement goal-relative de la perte."""
     transitions: list[Transition] = []
     context: list[str] = []
     pending_action: str | None = None
     pending_ctx: str = ""
+    goal: str = ""
 
     for msg in messages:
         role, content, tool_calls = _role_and_content(msg)
+
+        if role in _CONTEXT_ROLES and role in {"user", "human"} and not goal and content.strip():
+            goal = content.strip()          # 1re requête user = objectif de la trajectoire
 
         if role in _ASSISTANT_ROLES:
             action = _extract_action(role, content, tool_calls)
@@ -137,20 +155,30 @@ def from_messages(messages: Iterable[dict], reward_key: str | None = None) -> li
         if role in _CONTEXT_ROLES:
             context.append(f"{role}: {content}")
 
+    # progress croissant sur l'état RÉSULTANT (next_obs) : dernier pas = état résolu (1.0).
+    n = len(transitions)
+    for k, t in enumerate(transitions):
+        t.goal = goal
+        t.progress = (k + 1) / n if n else 0.0
+        t.traj_id = traj_id
+        t.done = (k == n - 1)
     return transitions
 
 
 def from_alfworld_steps(steps: Iterable[dict], obs_key: str = "observation",
-                        act_key: str = "action") -> list[Transition]:
+                        act_key: str = "action", traj_id: int = -1) -> list[Transition]:
     """Étapes (observation, action) consécutives → transitions (obs_i, act_i, obs_{i+1})."""
     steps = list(steps)
     out: list[Transition] = []
+    n = max(1, len(steps) - 1)
+    goal = str(steps[0].get(obs_key, "")) if steps else ""   # 1re observation = brief/tâche
     for i in range(len(steps) - 1):
         out.append(Transition(
             obs=str(steps[i].get(obs_key, "")),
             action=str(steps[i].get(act_key, "")),
             next_obs=str(steps[i + 1].get(obs_key, "")),
             done=i + 1 == len(steps) - 1,
+            goal=goal, progress=(i + 1) / n, traj_id=traj_id,
         ))
     return out
 
@@ -166,7 +194,8 @@ def _from_jsonl(path: str) -> list[Transition]:
             d = json.loads(line)
             out.append(Transition(**{k: d[k] for k in ("obs", "action", "next_obs") if k in d},
                                    reward=d.get("reward", 0.0), done=d.get("done", False),
-                                   meta=d.get("meta", {})))
+                                   goal=d.get("goal", ""), progress=float(d.get("progress", 0.0)),
+                                   traj_id=int(d.get("traj_id", -1)), meta=d.get("meta", {})))
     return out
 
 
@@ -205,13 +234,13 @@ def _load_hf(name: str, split: str, limit: int | None, alfworld: bool = False,
         ds = ds.select(range(min(limit, len(ds))))
 
     out: list[Transition] = []
-    for rec in ds:
+    for tid, rec in enumerate(ds):        # tid = identité de trajectoire (négatifs InfoNCE)
         if alfworld and steps_key and isinstance(rec.get(steps_key), list):
-            out += from_alfworld_steps(rec[steps_key])
+            out += from_alfworld_steps(rec[steps_key], traj_id=tid)
             continue
         msgs = _messages_field(rec)
         if msgs:
-            out += from_messages(msgs)
+            out += from_messages(msgs, traj_id=tid)
     return [t for t in out if t.is_valid()]
 
 

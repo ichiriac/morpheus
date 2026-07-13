@@ -70,7 +70,8 @@ class JepaWorldModel:
         return self._enc.encode([text or ""])[0]
 
     def _tensor(self, arr: np.ndarray):
-        return self._torch.from_numpy(np.ascontiguousarray(arr, dtype=np.float32)).unsqueeze(0)
+        t = self._torch.from_numpy(np.ascontiguousarray(arr, dtype=np.float32)).unsqueeze(0)
+        return t.to(self._device)
 
     def _proj(self, text: str) -> np.ndarray:
         """proj(E_state(text)) — état projeté dans le latent de travail."""

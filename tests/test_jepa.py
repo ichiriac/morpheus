@@ -26,6 +26,38 @@ def test_synthetic_transitions_are_valid_and_chained():
     assert any(t.done for t in trans)
 
 
+def test_synthetic_transitions_carry_goal_progress():
+    """Signal goal-relative : chaque pas porte un but, un progress ∈]0,1] croissant, un traj_id."""
+    trans = synthetic_transitions(n_episodes=5, seed=0)
+    by_traj: dict[int, list] = {}
+    for t in trans:
+        assert t.goal.strip()                       # but non vide
+        assert 0.0 < t.progress <= 1.0
+        by_traj.setdefault(t.traj_id, []).append(t)
+    for tid, steps in by_traj.items():
+        progs = [s.progress for s in steps]
+        assert progs == sorted(progs)               # progress croissant dans la trajectoire
+        assert progs[-1] == pytest.approx(1.0)      # état résolu = progress 1.0
+        assert steps[-1].done and {s.goal for s in steps} == {steps[0].goal}
+
+
+def test_from_messages_sets_goal_and_progress():
+    msgs = [
+        {"role": "user", "content": "rembourse ma commande 42"},
+        {"role": "assistant", "content": "",
+         "tool_calls": [{"function": {"name": "lookup_order", "arguments": "{}"}}]},
+        {"role": "tool", "content": "commande trouvée"},
+        {"role": "assistant", "content": "",
+         "tool_calls": [{"function": {"name": "issue_refund", "arguments": "{}"}}]},
+        {"role": "tool", "content": "remboursement émis"},
+    ]
+    trans = from_messages(msgs, traj_id=7)
+    assert [t.goal for t in trans] == ["rembourse ma commande 42"] * 2
+    assert [t.traj_id for t in trans] == [7, 7]
+    assert trans[0].progress == pytest.approx(0.5) and trans[1].progress == pytest.approx(1.0)
+    assert trans[-1].done
+
+
 def test_from_messages_openai_toolcall_shape():
     msgs = [
         {"role": "system", "content": "tu es un agent"},
@@ -106,6 +138,34 @@ def test_jepa_forward_and_loss_step():
     loss, logs = jepa_loss(pred, target, z)
     loss.backward()
     assert "pred" in logs and np.isfinite(logs["total"])
+
+
+def test_goal_alignment_loss_rewards_progress_alignment():
+    """cos(proj(s),proj(g))≈2·progress−1 : latents alignés sur le progress ⇒ perte ~0 ;
+    latents anti-alignés ⇒ perte franchement > 0. Le mask `valid` neutralise les buts vides."""
+    torch = pytest.importorskip("torch")
+    from morpheus.jepa.losses import goal_alignment_loss
+
+    import torch.nn.functional as F
+
+    n, d = 8, 16
+    torch.manual_seed(0)
+    progress = torch.linspace(0.1, 1.0, n)
+    traj_id = torch.arange(n)                       # trajectoires distinctes → tous négatifs
+    z_goal = F.normalize(torch.randn(n, d), dim=-1)
+    # composante orthogonale au but (Gram-Schmidt) pour fabriquer un cos EXACT = 2·progress−1
+    perp = torch.randn(n, d)
+    perp = F.normalize(perp - (perp * z_goal).sum(-1, keepdim=True) * z_goal, dim=-1)
+    c = (2 * progress - 1).unsqueeze(1)             # cible de cos
+    z_aligned = c * z_goal + torch.sqrt((1 - c ** 2).clamp_min(0)) * perp  # cos(.,z_goal)=2p−1
+    good, glog = goal_alignment_loss(z_aligned, z_goal, progress, traj_id, temp=0.1)
+    bad, _ = goal_alignment_loss(-z_aligned, z_goal, progress, traj_id, temp=0.1)
+    assert glog["g_align"] < 0.05 and good < bad
+
+    # buts tous vides (valid=0) → perte nulle, pas de NaN (dégrade vers JEPA nu)
+    valid0 = torch.zeros(n)
+    empty, elog = goal_alignment_loss(z_aligned, z_goal, progress, traj_id, valid=valid0)
+    assert float(empty) == pytest.approx(0.0) and np.isfinite(elog["g_align"])
 
 
 def test_jepa_train_smoke_synthetic():

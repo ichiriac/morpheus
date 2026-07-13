@@ -77,15 +77,46 @@ Longue session de mesure. Beaucoup d'infra + des **résultats négatifs solides*
 
 ### ➡️ Reprise Phase 2 — deux chantiers couplés (décision : consolidé, à attaquer à froid)
 
-- [ ] **FIX DU SIGNAL GOAL (cœur scientifique)** : rendre le latent goal-relative — prédicteur
-      conditionné `P(z, a, g)` OU terme d'alignement but↔état-terminal dans la perte
-      (`jepa/model.py` + `jepa/losses.py` + `jepa/train.py`), réentraîner, re-tester la
-      discrimination de `score_to_goal` (viser une étendue franche, pas 0.0086). Itération rapide
-      (entraînement GPU ~1 min une fois la VRAM libre).
-- [ ] **DÉBLOCAGE DONNÉES** : générer des trajectoires τ² **réussies** (rejouer les
-      `evaluation_criteria.actions` de référence = positifs ; échecs de Qwen = négatifs) pour faire
-      tourner `validate_goal_signal.py` (H1 monotonie, H2 séparation) sur du VRAI (mock disqualifié :
-      token-leak du but).
+- [x] **FIX DU SIGNAL GOAL — mécanisme IMPLÉMENTÉ + validé en-distribution (2026-07-13)** :
+      terme d'**alignement but↔état** ajouté à la perte (choix : alignement, PAS `P(z,a,g)` — car
+      `score_to_goal = cos(proj(état), proj(but))` n'utilise PAS le prédicteur ; c'est `proj` qu'il
+      faut rendre goal-relative). `jepa/losses.py::goal_alignment_loss` = **régression**
+      `cos(proj(s), proj(g)) ≈ 2·progress−1` (monotonie + étendue franche) + **InfoNCE** état→but
+      (discrimination inter-buts, pondérée par progress). Données : `Transition` porte désormais
+      `goal`/`progress`/`traj_id` (`data.py`) ; but = requête user (APIGen), progress = position
+      normalisée. Câblé dans `train.py` (sélection du checkpoint sur `g_align`). Réentraîné :
+      `checkpoints/jepa_apigen_goal/jepa.pt` (config `jepa_apigen_goal.yaml`, ~4 min GPU).
+      - **En-distribution (sanity synthétique `scripts/check_goal_discrimination.py`)** : étendue
+        **0.20** (checkpoint MiniLM) — voire **0.64** (checkpoint hashing dédié — vs **0.0086**
+        dégénéré) ; monotonie Spearman **+0.96** ; discrimination terminal own−autres **+0.12**. ✅
+      - **Probe direct τ² (`scripts/probe_tau2_goal_range.py`)** : étendue intra-épisode **médiane
+        0.176** (vs 0.0086). Le signal n'est PLUS dégénéré.
+      - **Gate officiel `validate_goal_signal.py` sur `data/tau2_replay/retail.jsonl`** (112 succès /
+        57 échecs) : **H2 PASS** (p=0.0003 — pente succès −0.019 > pente échec −0.034 ; AVANT le fix
+        H2 FAILait, pentes ≈ 0.0001) **MAIS magnitude faible et séparation de NIVEAU ≈ 0**.
+        **H1 FAIL** (mean_rho **−0.46**, INVERSÉ). ⇒ verdict gate toujours ❌.
+      - **DIAGNOSTIC du non-transfert τ² (le vrai constat)** : mismatch de distribution
+        APIGen→τ²-retail. (1) Le `goal` retail est une **instruction générique en prose FR**, PAS un
+        état-cible/requête d'issue → aucun chemin sémantique monotone vers la résolution. (2) Les
+        `states` retail sont des **blobs JSON bruts** d'outils (`{"order_id":...}`, IDs nus), pas des
+        observations NL comme à l'entraînement APIGen. Le latent est goal-relative LÀ OÙ il a été
+        entraîné, pas encore sur τ²-retail.
+- [ ] **SUITE DU FIX (transfert τ²)** : entraîner l'alignement sur des transitions de **domaine τ²**
+      (states JSON + but d'issue par tâche, PAS l'instruction générique), split held-out par
+      trajectoire (anti-leak vis-à-vis de `tau2_replay/retail.jsonl`), re-valider H1/H2. Alternative
+      côté éval : donner à `score_to_goal` un but d'ISSUE par tâche (sans fuite `user_scenario`) +
+      normaliser les states JSON→NL avant encodage.
+- [x] **DÉBLOCAGE DONNÉES FAIT (2026-07-13)** : `scripts/replay_reference_trajectories.py` rejoue
+      les `evaluation_criteria.actions` de référence contre l'env τ² → **112 positifs retail**
+      (db_reward=1.0 vérifié par l'évaluateur τ² officiel ; 77 exploitables ≥3 états) + **57 négatifs**
+      (rejeu tronqué de la dernière action, db_reward<1). Aucune dépendance au serveur LLM (arrêté).
+      `goal` = instruction générique non-solo (pas de fuite `user_scenario`). Sortie :
+      `data/tau2_replay/retail.jsonl`. **`validate_goal_signal.py` a TOURNÉ sur du VRAI** :
+      **H1 PASS** (mean_rho 0.121, p=0.029 — ordre de rang faiblement correct sur les succès),
+      **H2 FAIL** (pente succès ≈ pente échec ≈ 0.0001, p=1.0 — magnitude négligeable, aucune
+      séparation), H3 N/A (0 annotation manuelle). **Verdict gate = ❌** : espace NON goal-relative
+      **confirmé empiriquement** (plus une prédiction). ⇒ le vrai chantier reste le FIX DU SIGNAL
+      GOAL ci-dessus (P(z,a,g) conditionné OU terme d'alignement but↔état-terminal).
 - [ ] Ensuite seulement : mesure baseline vs JEPA-WM sur un régime discriminant.
 
 **État env en fin de session** : le **serveur vLLM est ARRÊTÉ** (je l'ai stoppé pour libérer la VRAM
@@ -275,11 +306,13 @@ Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo 
       `scripts/validate_goal_signal.py` (H1 monotonie sur succès via Spearman t↑vs score↑ ;
       H2 pente succès > échec ; H3 `score_after<score_before` vs annotation ERREUR/NOUVEAUTÉ).
       Stats par permutation (numpy pur), vérifié sur jeux plantés (signal→PASS, nul→FAIL).
-      **BLOQUÉ sur 3 pré-requis manquants** (état 2026-07-13) :
-      1. **0 trajectoire τ² RÉSOLUE** : les 6 épisodes réels (`runs/qwen_tau2_*`) sont tous
-         succès=0, échec sur le **bug ARGS placeholder** (`_SYS` : `{"clef":"valeur"}` → outils en
-         erreur). ⇒ corriger `_SYS`/politique pour des args réels PUIS relancer un vrai run τ²
-         (assez de résolus ET d'échoués pour H1/H2).
+      **DÉBLOQUÉ (2026-07-13)** — voir la puce « DÉBLOCAGE DONNÉES FAIT » ci-dessus. Le validateur
+      a tourné sur 112 positifs + 57 négatifs (rejeu des actions de référence) : **H1 PASS, H2 FAIL**
+      ⇒ gate ❌, signal NON goal-relative confirmé sur du vrai. Les pré-requis 1-3 restants sont soit
+      levés, soit sans objet pour ce constat :
+      1. ~~**0 trajectoire τ² RÉSOLUE**~~ : contourné sans le LLM via le rejeu expert
+         (`scripts/replay_reference_trajectories.py`). Un vrai run Qwen (args réels) reste utile plus
+         tard pour des négatifs « naturels », mais n'est plus bloquant pour H1/H2.
       2. **Pas de JEPA sémantique** : seul `jepa.pt` = hashing/synthetic (bruit + token-leak).
          ⇒ entraîner sur **sentence_transformer + APIGen** (⚠️ garder `transformers<5`, cf.
          Journal §2 — un mauvais install casse le tokenizer vLLM du serveur en cours).

@@ -1,0 +1,38 @@
+# JEPA GOAL-RELATIVE (fix du signal goal) sur APIGen-MT-5k avec encodeur sémantique.
+# Identique à jepa_apigen.yaml + terme d'ALIGNEMENT but↔état dans la perte : le prédicteur P
+# est inchangé, mais `proj` apprend à placer les états sur un axe goal-relative — exactement la
+# quantité que `score_to_goal` lit (cos(proj(état), proj(but))). Corrige l'étendue 0.0086.
+#
+# GPU (vLLM Qwen doit être ARRÊTÉ pour libérer la VRAM) :
+#   morpheus train-jepa --config configs/jepa_apigen_goal.yaml
+
+source: hf:Salesforce/APIGen-MT-5k
+hf_split: train
+limit: null                 # tout le jeu (~5000 records → ~21k transitions, buts = requête user)
+
+encoder: sentence_transformer
+encoder_model: sentence-transformers/all-MiniLM-L6-v2
+enc_dim: 384                # ignoré par sentence_transformer (déduit du modèle) ; indicatif
+
+latent_dim: 256
+action_dim: 128
+hidden: 512
+
+epochs: 40
+batch_size: 256
+lr: 0.0003
+weight_decay: 0.0001
+val_frac: 0.1
+seed: 0
+device: auto                # GPU si dispo
+
+# --- Pertes ---
+w_pred: 1.0
+w_var: 1.0
+w_cov: 0.04
+# signal goal-relative
+w_goal: 1.0                 # échelle de l'alignement goal↔état
+w_goal_nce: 0.5            # poids relatif de l'InfoNCE (discrimination inter-buts)
+goal_temp: 0.1
+
+out_dir: checkpoints/jepa_apigen_goal
