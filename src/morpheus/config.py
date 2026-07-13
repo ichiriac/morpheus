@@ -33,6 +33,9 @@ class OrchestratorConfig:
     max_turns: int = 12                   # T_max
     surprise_threshold: float = 0.5       # seuil de déclenchement du routeur de surprise
     use_world_model: bool = True          # False = baseline ReAct nue (Phase 0)
+    # nb de rollouts LLM concurrents (les K rollouts sont indépendants). >1 => vLLM batche
+    # les requêtes en vol au lieu de les traiter en série. 1 = séquentiel (déterministe/CI).
+    concurrency: int = 1
 
 
 @dataclass

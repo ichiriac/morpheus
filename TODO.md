@@ -30,7 +30,7 @@ Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Q
 ## État actuel
 
 - **Specs** `specs/00`→`05` (contexte, archi, bench, scaffold, RunPod+Qwen, entraînement JEPA).
-- **Code testé sans GPU** : **16 tests verts + 2 skip torch**. Boucle fermée MPC + LLM-as-world-model,
+- **Code testé sans GPU** : **17 tests verts + 2 skip torch**. Boucle fermée MPC + LLM-as-world-model,
   env mock, métrique réussite-vs-tours, connecteurs LLM (stub/vLLM/Anthropic), pipeline JEPA
   (data/encoders/model/losses/train), adaptateur τ²-bench (squelette `TODO(tau2)`).
 - **Piste A FAITE sur GPU (session 2026-07-12)** : Qwen3-32B-AWQ servi par vLLM sur A40,
@@ -59,10 +59,11 @@ Le pod A40 a un **driver CUDA 12.8** (`nvidia-smi` → 570.211.01). Pièges renc
    cd /workspace/morpheus && source .venv/bin/activate
    MODEL=Qwen/Qwen3-32B-AWQ bash scripts/serve_qwen_vllm.sh        # HF_HOME + marlin déjà gérés
    ```
-6. **Coût du world-model** : ~35 appels LLM/tour (k=4 × horizon=3, avec `propose` internes à
-   512 tok). ⇒ **~3 min/tour, ~10-25 min/tâche**. Le baseline nu = 1 appel/tour (~30 s/tâche).
-   Pour itérer vite : garder peu de tâches, ou baisser `k_candidates`/`horizon`, ou `max_tokens`
-   du world-model. Le vrai run 30 tâches se fera sur τ²-bench, pas sur le mock.
+6. **Coût du world-model** : ~35 appels LLM/tour (k=4 × horizon=3). ⇒ était **~3 min/tour** en
+   série. **CORRIGÉ depuis** : `orchestrator.concurrency>1` lance les K rollouts en parallèle
+   (vLLM batche) + `rollout` réutilise le ŝ' (un `predict`/tour en moins). Config rapide de
+   sanity : `configs/qwen_mock_fast.yaml`. Flags : `--k --horizon --concurrency`. Le vrai run
+   se fera sur τ²-bench (avec `concurrency: 8` dans `qwen_local.yaml`), pas sur le mock.
 
 `scripts/serve_qwen_vllm.sh` (marlin + HF_HOME) est **déjà commité** (`006abf5`). Reste juste ce
 `TODO.md` à committer.
@@ -76,7 +77,7 @@ Le pod A40 a un **driver CUDA 12.8** (`nvidia-smi` → 570.211.01). Pièges renc
   réaliste single-GPU = **approcher Sonnet 4.6** (pas Opus 4.8 / Fable 5 / Mythos 5).
 - **Métrique qui tranche** : réussite **vs nombre de tours** ; la thèse veut voir la courbe
   world-model diverger de la baseline **à partir de 8+ tours** (pas le score agrégé).
-- **Runtime** : **vLLM**, cible **RTX 4090 24 Go**, **Qwen3-32B-AWQ** (ou MoE Qwen3-Coder-30B-A3B).
+- **Runtime** : **vLLM**, GPU retenu **A40 48 Go**, **Qwen3-32B-AWQ** (kernels `awq_marlin`).
 - **Stack boucle** : **maison** (loop.py), pas LangGraph. **DSPy plus tard** (optim. prompt politique).
 - **JEPA** : module annexe, encodeur **gelé** (pas H-JEPA v0), **orchestrateur-pilote** (pas Qwen-pilote).
   Ne PAS réentraîner le backbone de Qwen en JEPA.
@@ -97,12 +98,16 @@ morpheus check-llm --config configs/qwen_local.yaml            # doit finir par 
       sans effet sur le mock, mais **à corriger dans `_SYS` avant τ²-bench** (args réels requis).
 - [x] Sanity baseline mock (2026-07-12) : `--no-world-model --tasks 5` = **100 %** (~2 min).
       Boucle MPC end-to-end validée avec Qwen réel.
-- [ ] **REPRISE** : finir la sanity world-model (le run 1-tâche a été lancé en fin de session) :
+- [ ] **REPRISE** : sanity world-model — **utiliser la config RAPIDE** (résout la lenteur du §6) :
       ```bash
-      morpheus run --config configs/qwen_local.yaml --tasks 5 --out runs/qwen_wm   # ~1-2h, cf. §6 journal
+      morpheus run --config configs/qwen_mock_fast.yaml --out runs/qwen_wm_fast   # K=2, H=1, 3 tâches, concurrency=4
       ```
-      (Sur le mock, baseline ≈ world-model : normal, trop simple — la vraie mesure c'est τ²-bench.
-      Ne PAS y passer du temps : 1-2 tâches suffisent à valider, puis attaquer l'étape 2.)
+      Depuis le §6, deux correctifs ont été ajoutés : les **K rollouts tournent en parallèle**
+      (`orchestrator.concurrency>1` → vLLM batche, plus de série), et `rollout` réutilise le ŝ'
+      (un `predict`/tour en moins). Coût/tour = `3 + K·(3H−1)` ⇒ K=2,H=1 ≈ 5 appels batché ⇒
+      sanity en quelques secondes au lieu de ~1-2 h. Surcharges dispo : `--k --horizon --concurrency`.
+      (Sur le mock, baseline ≈ WM : normal, trop simple — la vraie mesure c'est τ²-bench. Ne PAS
+      y passer du temps : valider que ça tourne, puis attaquer l'étape 2.)
 
 ## Piste B — smoke + entraînement JEPA (Phase 2)   → specs/05-jepa-training.md
 

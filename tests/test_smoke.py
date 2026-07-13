@@ -51,6 +51,24 @@ def test_baseline_and_worldmodel_both_run():
         assert result.turns >= 1
 
 
+def _orch_conc(concurrency: int) -> Orchestrator:
+    llm = build_llm(LLMConfig(kind="stub"))
+    cfg = OrchestratorConfig(k_candidates=4, horizon=2, max_turns=12,
+                             use_world_model=True, concurrency=concurrency)
+    return Orchestrator(Policy(llm, k=4), WorldModel(llm), cfg, SurpriseRouter())
+
+
+def test_parallel_rollouts_match_sequential():
+    # concurrency>1 (threads) doit donner EXACTEMENT le même résultat que séquentiel
+    # (stub déterministe + executor.map préserve l'ordre → départage des ex æquo identique).
+    env_seq = make_mock_env(task_index=0, seed=0, buckets=[4, 8, 12])
+    env_par = make_mock_env(task_index=0, seed=0, buckets=[4, 8, 12])
+    r_seq = _orch_conc(1).run(env_seq)
+    r_par = _orch_conc(4).run(env_par)
+    assert r_seq.success == r_par.success and r_seq.turns == r_par.turns
+    assert [s.chosen for s in r_seq.trace] == [s.chosen for s in r_par.trace]
+
+
 def test_divergence_bounds():
     assert divergence("", "") == 0.0
     assert divergence("a b c", "a b c") == 0.0

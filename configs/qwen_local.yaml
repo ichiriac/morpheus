@@ -34,6 +34,7 @@ orchestrator:
   max_turns: 12
   surprise_threshold: 0.5
   use_world_model: true
+  concurrency: 8            # rollouts concurrents → vLLM batche (indispensable vs séquentiel)
 
 eval:
   env: mock                       # étape 1 : valider Qwen sur le mock avant de passer à tau2

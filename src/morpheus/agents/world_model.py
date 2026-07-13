@@ -56,14 +56,15 @@ class WorldModel:
         return max(0.0, min(1.0, val / 10.0))
 
     def rollout(self, policy, state: State, first: Action, tools: list[str],
-                horizon: int) -> float:
+                horizon: int) -> tuple[float, str]:
         """Lookahead texte (MPC, boucle OUVERTE en imagination) : déroule `first` puis
-        `horizon-1` pas gloutons imaginés, et renvoie la meilleure proximité au but atteinte.
+        `horizon-1` pas gloutons imaginés. Renvoie `(meilleure proximité au but, ŝ' du 1er pas)`.
+        Le ŝ' du 1er pas est réutilisé par la boucle (divergence) → évite un `predict` en double.
         En Phase 2 ce rollout se fera dans le latent JEPA."""
-        imagined_text = self.predict(state, first)
-        best = self.score_to_goal(state.goal, imagined_text)
+        first_pred = self.predict(state, first)
+        best = self.score_to_goal(state.goal, first_pred)
         cur = State(goal=state.goal,
-                    observation=type(state.observation)(text=imagined_text),
+                    observation=type(state.observation)(text=first_pred),
                     turn=state.turn + 1,
                     history=state.history + [str(first)])
         for _ in range(max(0, horizon - 1)):
@@ -77,4 +78,4 @@ class WorldModel:
                         observation=type(state.observation)(text=imagined_text),
                         turn=cur.turn + 1,
                         history=cur.history + [str(nxt)])
-        return best
+        return best, first_pred

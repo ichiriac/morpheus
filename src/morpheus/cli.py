@@ -29,6 +29,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--env", default=None, choices=["mock", "tau2"], help="surcharge l'env")
     run.add_argument("--no-world-model", action="store_true",
                      help="baseline ReAct nue (Phase 0) : désactive le lookahead")
+    run.add_argument("--k", type=int, default=None, help="surcharge k_candidates (K)")
+    run.add_argument("--horizon", type=int, default=None, help="surcharge l'horizon (H)")
+    run.add_argument("--concurrency", type=int, default=None,
+                     help="rollouts LLM concurrents (>1 => vLLM batche)")
 
     chk = sub.add_parser("check-llm",
                          help="valider le branchement LLM + le format de sortie de la politique")
@@ -73,6 +77,12 @@ def main(argv: list[str] | None = None) -> int:
             cfg.eval.env = args.env
         if args.no_world_model:
             cfg.orchestrator.use_world_model = False
+        if args.k is not None:
+            cfg.orchestrator.k_candidates = args.k
+        if args.horizon is not None:
+            cfg.orchestrator.horizon = args.horizon
+        if args.concurrency is not None:
+            cfg.orchestrator.concurrency = args.concurrency
         metric = run_experiment(cfg, out_dir=args.out)
         print(summarize(metric))
         return 0

@@ -9,6 +9,7 @@ c'est la baseline ReAct nue (Phase 0), à comparer contre la version world-model
 
 from __future__ import annotations
 
+import concurrent.futures as _cf
 from dataclasses import dataclass, field
 
 from ..agents.policy import Policy
@@ -40,6 +41,22 @@ class Orchestrator:
         self.cfg = cfg
         self.router = router or SurpriseRouter()
 
+    def _rollout_all(self, state: State, candidates: list[Action],
+                     tools: list[str]) -> list[tuple[float, str]]:
+        """Évalue les K candidats par rollout. `concurrency>1` lance les rollouts en
+        parallèle (threads) : les appels LLM partent concurremment → vLLM les batche.
+        `ThreadPoolExecutor.map` préserve l'ordre → départage des ex æquo identique au séquentiel."""
+        H = self.cfg.horizon
+
+        def one(c: Action) -> tuple[float, str]:
+            return self.wm.rollout(self.policy, state, c, tools, H)
+
+        if self.cfg.concurrency <= 1 or len(candidates) <= 1:
+            return [one(c) for c in candidates]
+        workers = min(self.cfg.concurrency, len(candidates))
+        with _cf.ThreadPoolExecutor(max_workers=workers) as ex:
+            return list(ex.map(one, candidates))
+
     def run(self, env: Env) -> EpisodeResult:
         obs = env.reset()
         tools = env.tool_names()
@@ -55,12 +72,11 @@ class Orchestrator:
 
             # 2. LOOKAHEAD (MPC) — sinon baseline nue
             if self.cfg.use_world_model and len(candidates) > 1:
-                scored = [
-                    (self.wm.rollout(self.policy, state, c, tools, self.cfg.horizon), c)
-                    for c in candidates
-                ]
-                best_score, chosen = max(scored, key=lambda t: t[0])
-                predicted = self.wm.predict(state, chosen)
+                # K rollouts indépendants → parallélisables (vLLM batche les requêtes).
+                results = self._rollout_all(state, candidates, tools)   # [(score, ŝ'_1er), ...]
+                best_i = max(range(len(candidates)), key=lambda i: results[i][0])
+                chosen = candidates[best_i]
+                best_score, predicted = results[best_i]                  # ŝ' réutilisé (pas de re-predict)
                 score_before = self.wm.score_to_goal(state.goal, state.text)
             else:
                 chosen = candidates[0]
