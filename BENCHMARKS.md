@@ -24,15 +24,21 @@ Fix = terme d'**alignement but↔état** dans la perte JEPA (`goal_alignment_los
 |---|---|---|---|---|---|
 | `jepa_apigen` (AVANT, sans alignement) | **0.0086** (dégénéré) | ~0 | ~0.0086 | FAIL | **FAIL** (pentes ≈ 0.0001) |
 | `jepa_apigen_goal` (APRÈS, MiniLM, APIGen) | **0.20** | **+0.96** | **0.176** | FAIL (rho −0.46) | **PASS** (p=0.0003, mais magnitude faible) |
-| `jepa_tau2_align` (EN-DOMAINE τ², held-out) | — | **+0.567** (rho held-out) | — | **PASS** (p=0.0001) | FAIL marginal (p=0.064, direction OK) |
+| `jepa_tau2_align` v1 (held-out, 12 nég) | — | +0.567 | — | PASS (p=0.0001) | FAIL marginal (p=0.064) |
+| **`jepa_tau2_align` v2 (held-out, 40 nég, prédicteur réel)** | — | **+0.634** | — | **PASS (p≈0)** | **PASS (p≈0)** |
 
-> `jepa_tau2_align` : alignement entraîné sur des transitions τ²-retail rejouées, **split held-out par
-> trajectoire** (`build_tau2_alignment_data.py`, anti-leak). Gate sur les 33 trajectoires held-out
-> (21 succ / 12 échecs) : **H1 monotonie RÉPARÉE** (rho +0.567 vs −0.46 avant), H2 directionnellement
-> correct mais p=0.064 (12 négatifs « dernière-action-tronquée » qui progressent presque autant).
+> `jepa_tau2_align` : alignement entraîné sur transitions τ²-retail rejouées, **split held-out par
+> trajectoire** (`build_tau2_alignment_data.py`, anti-leak). **v2** (validé, VERDICT ✅) : négatifs
+> variés (`--neg-fracs 0.4,0.65,0.9` → 112 pos / 153 nég), **H2 length-robust** (NIVEAU moyen de
+> `score_to_goal`, pas la pente OLS confondue par la longueur), prédicteur à VRAIES actions.
+> Gate held-out (57 traj, 17 succ / 40 échecs) : **H1 PASS** rho +0.634 (p≈0) · **H2 PASS** niveau
+> succès 0.637 > échec 0.545 (p≈0). JEPA-WM opérationnel en drop-in (`jepa_wm_tau2.yaml`) : divergence
+> discrimine la vraie action (3/4 pas) ; classement rollout 1-pas bruité sous but générique (caveat).
 
 **Lecture** : mécanisme validé **en-distribution** (étendue franche, monotone, discriminant). Sur
 **τ²-retail**, H2 passe (séparation succès/échec, AVANT elle échouait) mais **H1 reste FAIL** (inversé) :
 mismatch de distribution — but τ² = instruction générique en prose FR (pas un état-cible), states τ² =
 blobs JSON bruts (pas des observations NL comme APIGen). Suite = entraîner l'alignement sur du domaine
 τ² (held-out) OU but d'issue par tâche + states normalisés NL (cf. TODO « SUITE DU FIX »).
+| 2026-07-13 17:38 | `qwen_tau2_telecom_solo_v2` | tau2/telecom | solo | world-model | `Qwen/Qwen3-32B-AWQ` | 2/1/6 | 3 | 100.0% | 0:100%(n3) |
+| 2026-07-13 18:08 | `jepa_wm_tau2` | mock/retail | — | world-model | `stub` | 3/1/8 | 3 | 0.0% | 4:0%(n1) · 8:0%(n1) · 12:0%(n1) |

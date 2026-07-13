@@ -74,6 +74,33 @@ def test_jepa_wm_is_drop_in_orchestrator(jepa_ckpt):
     json.dumps([asdict(s) for s in result.trace])
 
 
+def test_jepa_wm_lookahead_fires_with_multiple_candidates(jepa_ckpt):
+    """Chemin MPC réel : avec >1 candidats distincts, le loop APPELLE le world-model latent
+    (rollout → predicted_state latent, divergence calculée, sélection du meilleur). Le stub ne
+    propose qu'1 candidat → ce chemin n'était sinon jamais exercé en intégration."""
+    from morpheus.agents.surprise import SurpriseRouter
+    from morpheus.config import OrchestratorConfig
+    from morpheus.envs.mock_env import make_mock_env
+    from morpheus.orchestrator.types import Action
+
+    class MultiPolicy:
+        def propose(self, state, tools, **kw):
+            ts = list(tools) or ["authenticate_user", "lookup_order", "issue_refund"]
+            return [Action(t) for t in ts[:3]]
+
+    cfg = OrchestratorConfig(k_candidates=3, horizon=1, max_turns=4, use_world_model=True,
+                             surprise_threshold=0.3)
+    orch = Orchestrator(MultiPolicy(), _wm(jepa_ckpt), cfg, SurpriseRouter())
+    result = orch.run(make_mock_env(task_index=0, seed=0, buckets=[4, 8, 12]))
+
+    fired = [s for s in result.trace if len(s.candidates) > 1]
+    assert fired, "aucun tour avec >1 candidats — le chemin WM n'a pas été exercé"
+    for s in fired:
+        assert isinstance(s.predicted_state, list) and len(s.predicted_state) == LATENT_DIM
+        assert 0.0 <= s.divergence <= 1.0
+    json.dumps([asdict(s) for s in result.trace])   # trace sérialisable
+
+
 def test_jepa_wm_disabled_by_default():
     """Intégration OPTIONNELLE : off par défaut → le runner garde le LLM WM, torch non requis."""
     assert Config().jepa_wm.enabled is False

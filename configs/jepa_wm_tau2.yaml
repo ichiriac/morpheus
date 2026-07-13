@@ -1,0 +1,35 @@
+# Opérationnalité JEPA-WM : le world-model latent chargé depuis le checkpoint VALIDÉ goal-relative
+# (`jepa_tau2_align`, gate H1+H2 PASS sur held-out τ²-retail). Confirme que JepaWorldModel
+# (predict / score_to_goal / divergence / rollout) tourne en drop-in dans loop.py, avec un signal
+# goal-relative réel (pas un proxy). Politique = stub (déterministe, sans vLLM).
+#
+#   HF_HUB_OFFLINE=1 morpheus run --config configs/jepa_wm_tau2.yaml --out runs/jepa_wm_tau2
+
+policy:
+  kind: stub
+  model: stub
+
+world_model:
+  kind: stub
+  model: stub
+
+orchestrator:
+  k_candidates: 3
+  horizon: 1            # JepaWorldModel v0 : lookahead latent à 1 pas
+  max_turns: 8
+  surprise_threshold: 0.5
+  use_world_model: true
+  concurrency: 1
+
+jepa_wm:
+  enabled: true
+  checkpoint: checkpoints/jepa_tau2_align/jepa.pt
+  device: cpu
+
+eval:
+  env: mock
+  domain: retail
+  tasks: 3
+  turn_buckets: [4, 8, 12]
+  seed: 0
+  out_dir: runs/jepa_wm_tau2

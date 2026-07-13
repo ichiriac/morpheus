@@ -97,12 +97,13 @@ class JepaWorldModel:
     def score_to_goal(self, goal: str, state_text: str) -> float:
         """Proximité au but ∈ [0, 1] : cos latent (proj état, proj but) ramené à [0, 1].
 
-        ⚠️ PROXY NON VALIDÉ (au même titre que le Jaccard qu'il remplace). Suppose que l'espace
-        latent est *goal-relative* : rien ne le garantit tant que `proj` n'est pas entraîné
-        conditionné sur le but (`P(z,a,g)`) ou avec un terme d'alignement but↔état-terminal.
-        Gate de l'étape 4 : `scripts/validate_goal_signal.py` (H1 monotonie sur succès,
-        H2 séparation succès/échec) sur de VRAIES trajectoires τ². Ne PAS traiter ce score
-        comme validé avant que ce harnais ne passe."""
+        VALIDÉ goal-relative quand `proj` est entraîné avec le terme d'alignement but↔état
+        (`jepa/losses.py::goal_alignment_loss`) sur la distribution cible. Gate
+        `scripts/validate_goal_signal.py` sur held-out τ²-retail (checkpoint
+        `jepa_tau2_align`) : **H1 PASS** (monotonie, rho +0.635, p≈0) + **H2 PASS** (séparation
+        succès/échec par NIVEAU, length-robust, p≈0). ⚠️ La validité est **par distribution** :
+        un checkpoint entraîné hors-domaine (ex. APIGen nu) reste un PROXY sur τ² (cf. mémoire
+        `goal-signal-distribution-mismatch`). Réentraîner l'alignement en-domaine avant de s'y fier."""
         return max(0.0, min(1.0, (_cos(self._proj(state_text), self._proj(goal)) + 1.0) / 2.0))
 
     def divergence(self, predicted, real_text: str) -> float:

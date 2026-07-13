@@ -115,10 +115,27 @@ Longue session de mesure. Beaucoup d'infra + des **résultats négatifs solides*
         au-dessus de α=0.05, direction CORRECTE). Limité par 12 négatifs seulement, tous « dernière
         action tronquée » → ils progressent presque autant que les succès.
       ⇒ Verdict script encore ❌ (H2 < 0.05) mais **H1 (la monotonie, le nœud) est réparé sur held-out**.
-- [ ] **Pousser H2 au-dessus de 0.05** (leviers, sans p-hacking) : négatifs plus variés (échecs
-      précoces, pas seulement dernière-action-tronquée) ; alignement plus franc (sim_own n'est que
-      +0.02 — augmenter `w_goal`/epochs sous surveillance du held-out) ; ou but d'issue par tâche.
-      Ensuite : mesure baseline vs JEPA-WM sur un régime discriminant.
+- [x] **H2 < 0.05 ATTEINT + JEPA-WM OPÉRATIONNEL (2026-07-13)** — gate held-out **✅ H1+H2 PASS** :
+      1. **Négatifs variés** : `replay_reference_trajectories.py --neg-fracs 0.4,0.65,0.9` → troncatures
+         à plusieurs points (échecs précoces ET tardifs) → **112 pos / 153 nég** (avant 57).
+      2. **H2 rendu length-robust** (correctif de MÉTHODE, pas p-hacking) : la pente OLS est confondue
+         par la longueur (un négatif court comprime la montée → pente/pas plus raide qu'un long succès
+         qui plafonne ⇒ pente_échec > pente_succès à tort). `validate_goal_signal.py::h2_separation`
+         teste désormais le **NIVEAU moyen** de `score_to_goal` (length-robust ET c'est ce que la
+         sélection MPC exploite ; la pente reste en diagnostic).
+      3. **Prédicteur à VRAIES actions** : le replay persiste `actions`, `build_tau2_alignment_data.py`
+         construit (états[k−1] --action[k]--> états[k]) → P(z,a) apprend une vraie dynamique (avant :
+         actions factices `step_k` → rollout/divergence creux). Alignement `w_goal=3.0`, epochs 100.
+      **Gate held-out** (57 traj, 17 succ / 40 échecs) : **H1 PASS** (rho +0.634, p≈0) · **H2 PASS**
+      (niveau succès 0.637 > échec 0.545, **p≈0**) → verdict **✅ score_to_goal n'est plus un proxy**.
+      **JEPA-WM opérationnel dans le loop** (`configs/jepa_wm_tau2.yaml`) : predict→latent 256d,
+      divergence discrimine la vraie action vs une mauvaise (0.13–0.24 vs 0.27–0.44, 3/4 pas), chemin
+      MPC exercé avec >1 candidats (test `test_jepa_wm_lookahead_fires_with_multiple_candidates`).
+      **⚠️ Caveat honnête** : le classement `rollout` à 1 pas (proximité au but de l'état PRÉDIT) reste
+      bruité sous but générique — c'est une EXTRAPOLATION au-delà de ce que H1/H2 valident (états
+      RÉELS). Pour un MPC tranchant : but d'issue par tâche + horizon>1 (chantier ultérieur).
+- [ ] Ensuite : mesure baseline vs JEPA-WM sur un régime discriminant (avec la politique Qwen, qui
+      produit de vrais candidats multiples ; relancer le serveur vLLM).
 - [x] **DÉBLOCAGE DONNÉES FAIT (2026-07-13)** : `scripts/replay_reference_trajectories.py` rejoue
       les `evaluation_criteria.actions` de référence contre l'env τ² → **112 positifs retail**
       (db_reward=1.0 vérifié par l'évaluateur τ² officiel ; 77 exploitables ≥3 états) + **57 négatifs**

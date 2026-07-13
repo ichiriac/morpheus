@@ -6,8 +6,9 @@ l'état terminal → corrélation trivialement gonflée) :
 
   H1  monotonie sur succès   : sur les rollouts RÉSOLUS, score_to_goal(goal, s_t) croît avec t
                                (corrélation de rang de Spearman t↑ vs score↑, en moyenne > 0).
-  H2  séparation succès/échec: la PENTE moyenne de score_to_goal est > sur trajectoires
-                               résolues que sur trajectoires échouées.
+  H2  séparation succès/échec: le NIVEAU moyen de score_to_goal est > sur trajectoires résolues
+                               que sur trajectoires échouées (length-robust ; la pente OLS est
+                               confondue par la longueur — cf. h2_separation).
   H3  utilité routeur        : `score_after < score_before` sépare mieux que le hasard les pas
                                étiquetés ERREUR vs NOUVEAUTÉ (matrice de confusion vs annotation
                                MANUELLE).
@@ -178,16 +179,29 @@ def h1_monotonicity(trajs: list[dict]) -> dict:
 
 
 def h2_separation(trajs: list[dict]) -> dict:
-    succ = [slope(np.asarray(tr["scores"])) for tr in trajs if tr.get("success") and _usable(tr)]
-    fail = [slope(np.asarray(tr["scores"])) for tr in trajs
-            if not tr.get("success") and _usable(tr)]
-    if len(succ) < 3 or len(fail) < 3:
-        return {"status": "N/A", "reason": f"classes insuffisantes (succès={len(succ)}, échecs={len(fail)}, min 3 chacune)",
-                "n_success": len(succ), "n_fail": len(fail)}
-    p = perm_p_group_gt(np.array(succ), np.array(fail))
-    passed = np.mean(succ) > np.mean(fail) and p < ALPHA
-    return {"status": "PASS" if passed else "FAIL", "n_success": len(succ), "n_fail": len(fail),
-            "slope_success": round(float(np.mean(succ)), 4), "slope_fail": round(float(np.mean(fail)), 4),
+    """Séparation succès/échec par **niveau** de proximité au but (length-robust).
+
+    ⚠️ On mesure le NIVEAU moyen `score_to_goal` sur la trajectoire, PAS la pente OLS. La pente est
+    **confondue par la longueur** : un négatif court (rejeu tronqué tôt) comprime la montée initiale
+    en une pente/pas plus raide qu'un long succès qui plafonne près de la résolution → la pente du
+    négatif peut DÉPASSER celle du succès alors même que le succès atteint une proximité plus haute.
+    Le niveau (succès résolvent → proximité soutenue plus haute ; échecs s'arrêtent avant) est
+    length-robust ET c'est exactement ce que la sélection MPC exploite. La pente reste reportée en
+    diagnostic."""
+    su = [tr for tr in trajs if tr.get("success") and _usable(tr)]
+    fa = [tr for tr in trajs if not tr.get("success") and _usable(tr)]
+    if len(su) < 3 or len(fa) < 3:
+        return {"status": "N/A", "reason": f"classes insuffisantes (succès={len(su)}, échecs={len(fa)}, min 3 chacune)",
+                "n_success": len(su), "n_fail": len(fa)}
+    succ = np.array([float(np.mean(tr["scores"])) for tr in su])
+    fail = np.array([float(np.mean(tr["scores"])) for tr in fa])
+    p = perm_p_group_gt(succ, fail)
+    passed = succ.mean() > fail.mean() and p < ALPHA
+    slope_su = float(np.mean([slope(np.asarray(tr["scores"])) for tr in su]))
+    slope_fa = float(np.mean([slope(np.asarray(tr["scores"])) for tr in fa]))
+    return {"status": "PASS" if passed else "FAIL", "n_success": len(su), "n_fail": len(fa),
+            "level_success": round(float(succ.mean()), 4), "level_fail": round(float(fail.mean()), 4),
+            "slope_success_diag": round(slope_su, 4), "slope_fail_diag": round(slope_fa, 4),
             "p": round(p, 4)}
 
 

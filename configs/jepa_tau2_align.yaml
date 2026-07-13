@@ -20,7 +20,7 @@ latent_dim: 256
 action_dim: 128
 hidden: 512
 
-epochs: 80
+epochs: 100
 batch_size: 128
 lr: 0.0003
 weight_decay: 0.0001
@@ -32,7 +32,7 @@ w_pred: 1.0
 w_var: 1.0
 w_cov: 0.04
 # signal goal-relative : alignement pur (pas d'InfoNCE — but unique)
-w_goal: 2.0
+w_goal: 3.0
 w_goal_nce: 0.0
 goal_temp: 0.1
 

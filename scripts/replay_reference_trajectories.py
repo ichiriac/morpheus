@@ -70,6 +70,7 @@ def _replay(env_constructor, task, actions, evaluator):
     env = env_constructor(solo_mode=False)
     trajectory = []
     states: list[str] = []
+    acts: list[str] = []            # texte de l'action qui a produit chaque état (nom + args)
     n_ok = 0
     had_error = False
     for i, a in enumerate(actions):
@@ -79,6 +80,7 @@ def _replay(env_constructor, task, actions, evaluator):
         trajectory.append(tm)
         content = tm.content if isinstance(tm.content, str) else json.dumps(tm.content, default=str)
         states.append(content)
+        acts.append(f"{a.name}({json.dumps(a.arguments or {}, ensure_ascii=False, default=str)})")
         if getattr(tm, "error", False):
             had_error = True
         else:
@@ -90,7 +92,7 @@ def _replay(env_constructor, task, actions, evaluator):
         reward = float(ri.reward)
     except Exception as e:  # pragma: no cover — robustesse par tâche
         print(f"    ⚠️  évaluateur KO : {e}", file=sys.stderr)
-    return states, reward, n_ok, had_error
+    return states, acts, reward, n_ok, had_error
 
 
 def main(argv=None) -> int:
@@ -102,6 +104,10 @@ def main(argv=None) -> int:
                     help="longueur mini d'une trajectoire conservée (défaut 3 = MIN_LEN du validateur)")
     ap.add_argument("--no-negatives", action="store_true",
                     help="ne pas générer les négatifs tronqués (positifs seulement)")
+    ap.add_argument("--neg-fracs", default="0.4,0.65,0.9",
+                    help="fractions de troncature des négatifs (fraction d'actions CONSERVÉES). "
+                         "Plusieurs points → négatifs de difficulté variée (échecs précoces ET "
+                         "tardifs) → classe échec au signal plus tranché pour H2.")
     args = ap.parse_args(argv)
 
     _quiet_tau2()
@@ -132,7 +138,7 @@ def main(argv=None) -> int:
                 continue
 
             # --- POSITIF : rejeu complet → doit atteindre l'état-but (db_reward == 1.0) ---
-            states, reward, n_ok, had_error = _replay(env_constructor, task, actions, EnvironmentEvaluator)
+            states, acts, reward, n_ok, had_error = _replay(env_constructor, task, actions, EnvironmentEvaluator)
             success = reward is not None and reward >= 1.0 - 1e-9
             if not success:
                 n_skip_reward += 1
@@ -140,23 +146,33 @@ def main(argv=None) -> int:
                       file=sys.stderr)
             else:
                 n_pos += 1
-                rec = {"goal": goal, "success": True, "states": states, "task": task.id,
-                       "n_actions": len(actions), "reward": reward, "kind": "replay_full"}
+                rec = {"goal": goal, "success": True, "states": states, "actions": acts,
+                       "task": task.id, "n_actions": len(actions), "reward": reward,
+                       "kind": "replay_full"}
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 if len(states) >= args.min_len:
                     n_pos_usable += 1
 
-            # --- NÉGATIF : rejeu tronqué (dernière action retirée) → échec contrôlé ---
-            if not args.no_negatives and len(actions) - 1 >= args.min_len:
-                t_states, t_reward, _, _ = _replay(
-                    env_constructor, task, actions[:-1], EnvironmentEvaluator
-                )
-                # ne garder que les VRAIS échecs (l'action manquante était bien « bouclante »)
-                if t_reward is not None and t_reward < 1.0 - 1e-9:
-                    n_neg += 1
-                    rec = {"goal": goal, "success": False, "states": t_states, "task": task.id,
-                           "n_actions": len(actions) - 1, "reward": t_reward, "kind": "replay_truncated"}
-                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            # --- NÉGATIFS : rejeux tronqués à PLUSIEURS points → échecs de difficulté variée ---
+            # Une seule troncature « dernière action » progresse presque comme un succès (H2
+            # marginal). En coupant aussi PLUS TÔT, la trajectoire s'arrête loin de la résolution :
+            # jamais le saut final → pente plus faible ⇒ meilleure séparation succès/échec.
+            if not args.no_negatives:
+                L = len(actions)
+                fracs = [float(x) for x in args.neg_fracs.split(",") if x.strip()]
+                cuts = sorted({max(args.min_len, min(L - 1, round(fr * L))) for fr in fracs})
+                cuts = [k for k in cuts if args.min_len <= k <= L - 1]   # ≥ min_len, ≥1 action retirée
+                for k in cuts:
+                    t_states, t_acts, t_reward, _, _ = _replay(
+                        env_constructor, task, actions[:k], EnvironmentEvaluator
+                    )
+                    # ne garder que les VRAIS échecs (n'atteint pas l'état-but)
+                    if t_reward is not None and t_reward < 1.0 - 1e-9 and len(t_states) >= args.min_len:
+                        n_neg += 1
+                        rec = {"goal": goal, "success": False, "states": t_states, "actions": t_acts,
+                               "task": task.id, "n_actions": k, "reward": t_reward,
+                               "kind": f"replay_trunc_{k}"}
+                        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     print(f"\n✅ {out_path}")
     print(f"   positifs (résolus)         : {n_pos}  (dont exploitables ≥{args.min_len} états : {n_pos_usable})")

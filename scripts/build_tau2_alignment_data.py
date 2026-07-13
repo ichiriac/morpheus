@@ -54,11 +54,16 @@ def main(argv=None) -> int:
                                       "states": states}, ensure_ascii=False) + "\n")
                 n_val_ep += 1
                 continue
+            # transitions à VRAIES actions : (états[k−1] --action[k]--> états[k]). L'action k est
+            # celle qui a PRODUIT états[k] (persistée par le replay). Le prédicteur P(z,a) apprend
+            # ainsi une VRAIE dynamique (pas des actions factices « step_k ») → rollout/divergence
+            # exploitables. progress = position de l'état résultant ∈ ]0,1] (1.0 au dernier).
+            acts = r.get("actions") or [f"step_{k}" for k in range(len(states))]
             T = len(states)
-            for k in range(T - 1):
-                tr = {"obs": states[k], "action": f"step_{k}", "next_obs": states[k + 1],
-                      "goal": goal, "progress": (k + 1) / (T - 1), "traj_id": 100_000 + i,
-                      "done": k + 1 == T - 1}
+            for k in range(1, T):
+                tr = {"obs": states[k - 1], "action": acts[k], "next_obs": states[k],
+                      "goal": goal, "progress": k / (T - 1), "traj_id": 100_000 + i,
+                      "done": k == T - 1}
                 ftr.write(json.dumps(tr, ensure_ascii=False) + "\n")
                 n_train_tr += 1
             n_train_ep += 1
