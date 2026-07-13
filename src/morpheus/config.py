@@ -36,6 +36,9 @@ class OrchestratorConfig:
     # nb de rollouts LLM concurrents (les K rollouts sont indépendants). >1 => vLLM batche
     # les requêtes en vol au lieu de les traiter en série. 1 = séquentiel (déterministe/CI).
     concurrency: int = 1
+    # --- RAG gated par la surprise (Phase 3) ---
+    use_rag: bool = False                 # True = récupère la KB quand δ dépasse le seuil
+    rag_top_k: int = 3                    # nb de règles de policy récupérées par surprise
 
 
 @dataclass
@@ -46,6 +49,21 @@ class EvalConfig:
     turn_buckets: list[int] = field(default_factory=lambda: [4, 8, 12])
     seed: int = 0
     out_dir: str = "runs"
+    # --- τ²-bench (env: tau2) ---
+    # solo=True : agent seul (DummyUser, hors-ligne) ; n'accepte QUE les tâches avec un
+    # `ticket` (telecom/mock). solo=False : user simulé par LLM (retail/airline) → renseigner
+    # tau2_user_* pour pointer le simulateur sur un endpoint (ex. le même vLLM Qwen).
+    tau2_solo: bool = False
+    tau2_max_steps: int = 30              # garde-fou interne τ² (≥ 2×max_turns conseillé)
+    tau2_split: str | None = None         # nom de split de tâches (optionnel)
+    tau2_user_llm: str | None = None      # modèle litellm du user-sim (ex. openai/Qwen/Qwen3-32B-AWQ)
+    tau2_user_base_url: str | None = None # base_url du user-sim (ex. http://localhost:8000/v1)
+    tau2_user_api_key_env: str | None = None
+    # --- KB / RAG (orchestrator.use_rag) ---
+    # Source du référentiel de vérité : les policy.md de τ². Si kb_policy_path est None, on
+    # dérive `<tau2_data_dir|$TAU2_DATA_DIR|./tau2-bench/data>/tau2/domains/<domain>/policy.md`.
+    kb_policy_path: str | None = None
+    tau2_data_dir: str | None = None
 
 
 @dataclass

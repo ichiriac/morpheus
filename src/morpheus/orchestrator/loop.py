@@ -12,6 +12,7 @@ from __future__ import annotations
 import concurrent.futures as _cf
 from dataclasses import dataclass, field
 
+from ..agents.knowledge import KnowledgeBase
 from ..agents.policy import Policy
 from ..agents.surprise import SurpriseRouter, divergence
 from ..agents.world_model import WorldModel
@@ -35,11 +36,13 @@ class Orchestrator:
         world_model: WorldModel,
         cfg: OrchestratorConfig,
         router: SurpriseRouter | None = None,
+        kb: KnowledgeBase | None = None,
     ) -> None:
         self.policy = policy
         self.wm = world_model
         self.cfg = cfg
         self.router = router or SurpriseRouter()
+        self.kb = kb  # référentiel de vérité, interrogé seulement sur surprise (RAG gated)
 
     def _rollout_all(self, state: State, candidates: list[Action],
                      tools: list[str]) -> list[tuple[float, str]]:
@@ -91,8 +94,9 @@ class Orchestrator:
             # 4. DIVERGENCE
             delta = divergence(predicted, step.observation.text) if predicted else 0.0
 
-            # 5. ROUTER LA SURPRISE
+            # 5. ROUTER LA SURPRISE  +  RAG *gated par la surprise* (Phase 3)
             route = None
+            facts: list[str] = []
             if predicted is not None and delta > self.cfg.surprise_threshold:
                 score_after = self.wm.score_to_goal(state.goal, step.observation.text)
                 route = self.router.route(
@@ -101,8 +105,14 @@ class Orchestrator:
                     score_before=score_before,
                     score_after=score_after,
                 )
-                # Phase 3+ : ici, si route == ERROR/NOVELTY → RAG gated + replanification.
-                # Phase 1 : on trace le routage sans agir dessus (instrumentation seule).
+                # Récupération déclenchée UNIQUEMENT par la surprise (économie du RAG gated) :
+                # on interroge la KB avec l'état vrai + l'action qui a surpris.
+                if self.cfg.use_rag and self.kb is not None:
+                    query = f"{chosen} {step.observation.text}"
+                    facts = [r.as_fact() for r in self.kb.retrieve(query, self.cfg.rag_top_k)]
+                # Couture Phase 3+ : selon `route`, replanifier (ERROR) / assimiler (NOVELTY)
+                # en réinjectant `facts` dans la politique. Ici on récupère + trace ; agir sur
+                # `facts` (replanification) est l'incrément suivant.
 
             trace.append(
                 TraceStep(
@@ -115,6 +125,7 @@ class Orchestrator:
                     surprise_route=route,
                     reward=step.reward,
                     done=step.done,
+                    retrieved_facts=facts,
                 )
             )
 

@@ -7,15 +7,17 @@ from .base import Env
 
 
 def build_env_factory(cfg: EvalConfig):
-    """Renvoie une fonction `make(task_index) -> Env` pour itérer sur les tâches."""
+    """Renvoie `(make, n_tasks)` : une fabrique `make(task_index) -> Env` et le nombre
+    EFFECTIF de tâches à jouer (τ² peut en offrir moins que `cfg.tasks`)."""
     if cfg.env == "mock":
         from .mock_env import make_mock_env
 
-        return lambda i: make_mock_env(task_index=i, seed=cfg.seed, buckets=cfg.turn_buckets)
+        make = lambda i: make_mock_env(task_index=i, seed=cfg.seed, buckets=cfg.turn_buckets)
+        return make, cfg.tasks
     if cfg.env == "tau2":
-        from .tau2_adapter import make_tau2_env
+        from .tau2_adapter import build_tau2_factory
 
-        return lambda i: make_tau2_env(task_index=i, domain=cfg.domain)
+        return build_tau2_factory(cfg)
     raise ValueError(f"env inconnu : {cfg.env!r}")
 
 

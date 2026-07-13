@@ -23,7 +23,7 @@ def check_llm(cfg: Config) -> int:
     print(f"      réponse brute : {ping!r}\n")
 
     print("[2/3] Construction d'une tâche mock (retail-lite) et appel de la politique...")
-    make_env = build_env_factory(cfg.eval)
+    make_env, _n = build_env_factory(cfg.eval)
     env = make_env(0)
     obs = env.reset()
     state = State(goal=env.goal(), observation=obs)

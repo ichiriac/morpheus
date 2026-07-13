@@ -6,6 +6,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+from ..agents.knowledge import KnowledgeBase, locate_policy
 from ..agents.policy import Policy
 from ..agents.surprise import SurpriseRouter
 from ..agents.world_model import WorldModel
@@ -22,9 +23,17 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
 
     policy = Policy(policy_llm, k=cfg.orchestrator.k_candidates)
     world_model = WorldModel(wm_llm)
-    orch = Orchestrator(policy, world_model, cfg.orchestrator, SurpriseRouter())
 
-    make_env = build_env_factory(cfg.eval)
+    kb: KnowledgeBase | None = None
+    if cfg.orchestrator.use_rag:
+        policy_path = locate_policy(
+            cfg.eval.domain, cfg.eval.kb_policy_path, cfg.eval.tau2_data_dir
+        )
+        kb = KnowledgeBase.from_policy_file(policy_path, cfg.eval.domain)
+
+    orch = Orchestrator(policy, world_model, cfg.orchestrator, SurpriseRouter(), kb=kb)
+
+    make_env, n_tasks = build_env_factory(cfg.eval)
     metric = SuccessVsTurns()
 
     out = Path(out_dir or cfg.eval.out_dir)
@@ -32,9 +41,15 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
     trace_path = out / "episodes.jsonl"
 
     with trace_path.open("w", encoding="utf-8") as f:
-        for i in range(cfg.eval.tasks):
+        for i in range(n_tasks):
             env = make_env(i)
-            result = orch.run(env)
+            try:
+                result = orch.run(env)
+            finally:
+                # τ² : termine le thread orchestrateur si la boucle s'est arrêtée sans `done`.
+                close = getattr(env, "close", None)
+                if callable(close):
+                    close()
             bucket = env.required_turns()
             metric.add(bucket, result.success)
             f.write(json.dumps({

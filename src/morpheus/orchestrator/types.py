@@ -68,3 +68,4 @@ class TraceStep:
     surprise_route: str | None        # None | "ERROR" | "NOVELTY"
     reward: float
     done: bool
+    retrieved_facts: list[str] = field(default_factory=list)  # KB récupérée (RAG gated, Phase 3)

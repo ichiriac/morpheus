@@ -31,9 +31,10 @@ Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Q
 ## État actuel
 
 - **Specs** `specs/00`→`05` (contexte, archi, bench, scaffold, RunPod+Qwen, entraînement JEPA).
-- **Code testé** : **19 tests verts** (les 2 tests torch tournent une fois torch installé ; 17+2 skip sans GPU). Boucle fermée MPC + LLM-as-world-model,
+- **Code testé** : **29 tests verts** (les 2 tests torch tournent une fois torch installé). Boucle fermée MPC + LLM-as-world-model,
   env mock, métrique réussite-vs-tours, connecteurs LLM (stub/vLLM/Anthropic), pipeline JEPA
-  (data/encoders/model/losses/train), adaptateur τ²-bench (squelette `TODO(tau2)`).
+  (data/encoders/model/losses/train), adaptateur τ²-bench (squelette `TODO(tau2)`),
+  **KB/RAG gated par la surprise** (`agents/knowledge.py`, policies τ² → BM25).
 - **Piste A FAITE sur GPU (session 2026-07-12)** : Qwen3-32B-AWQ servi par vLLM sur A40,
   `check-llm` = OUI ✅, sanity baseline mock 5 tâches = 100 %.
 - **Piste A étape 1 TERMINÉE (session 2026-07-13, après réinstall serveur)** : sanity world-model
@@ -140,14 +141,41 @@ pytest -q                                                      # doit passer les
 
 ---
 
-## Étape 2 — câbler τ²-bench (retail)   *(après piste A)*
+## Étape 2 — câbler τ²-bench   *(FAIT 2026-07-13, sauf le point « mesure équitable retail »)*
 
-- [ ] Installer τ²-bench sur le pod (confirmer le nom du paquet / repo Sierra).
-- [ ] Implémenter les `TODO(tau2)` dans `src/morpheus/envs/tau2_adapter.py` :
-      `reset() / step() / goal() / tool_names()` + mapping `Action`↔outils, reward, `done`,
-      et `tool_error` sur échec d'outil.
-- [ ] Nouvelle config `configs/qwen_tau2.yaml` (`eval.env: tau2`).
-- [ ] Vérifier le bucketing par longueur de tâche (`required_turns()` / `eval/metrics.py`).
+- [x] **Installé** : paquet `tau2` (v1.0.0, repo Sierra `sierra-research/tau2-bench`, MIT, py3.12).
+      Depuis source (pas sur PyPI) : `git clone … && pip install -e /workspace/tau2-bench` +
+      `pip install gymnasium`. N'a PAS bousculé la pile vllm (dry-run vérifié). Clone persistant
+      sur `/workspace/tau2-bench` → survit à un restart ; à re-`pip install -e` après réinstall venv.
+- [x] **Adaptateur câblé sur l'interface gym de τ²** (`tau2.gym.AgentGymEnv`, step-based) :
+      `reset/step/goal/tool_names/required_turns/close`. `Action`→JSON `{"name","arguments"}`,
+      reward via `evaluate_simulation` (0 jusqu'à `done`), `success = reward≥1`, `done` = l'agent
+      appelle l'outil `done` (auto-exposé). `required_turns` = nb d'actions **agent** de référence.
+      Deux modes : **solo** (DummyUser, hors-ligne, tool-only, exige un `ticket`) et **non-solo**
+      (user simulé par LLM). Testé : 3 tests (`tests/test_tau2.py`, skip si τ² absent) — **22 verts**.
+- [x] Configs : `configs/qwen_tau2_telecom_solo.yaml` (smoke solo qui tourne tout de suite) et
+      `configs/qwen_tau2.yaml` (cible retail, non-solo, user-sim sur le vLLM Qwen).
+- [x] **Bucketing vérifié** : sur retail, `required_turns` couvre {5,6,7,8,9,10,11,12,13} (régime
+      8+ tours bien peuplé) ; `SuccessVsTurns` agrège correctement (test dédié).
+- [x] **Smoke end-to-end** : `morpheus run … qwen_tau2_telecom_solo` pilote τ² de bout en bout,
+      Qwen émet de vrais appels d'outils τ² (args réels), reward calculé, threads nettoyés.
+
+### ⚠️ Reste pour une MESURE ÉQUITABLE sur retail (bloc de l'étape 3)
+
+Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo ; il faut le
+**user-sim** (non-solo). Or la politique de morpheus **n'émet que des appels d'outils**, jamais de
+message texte à l'utilisateur → les tâches retail qui exigent un dialogue (demander l'id de
+commande, confirmer un remboursement…) sont pénalisées. Le pipeline tourne (`configs/qwen_tau2.yaml`)
+mais la mesure n'est pas encore juste. Le seul domaine solo clé-en-main (telecom) a des tâches
+trop courtes (0–2 actions) → courbe plate. **Décision à prendre pour l'étape 3** :
+
+- [ ] **(recommandé)** Ajouter à l'orchestrateur une action « répondre à l'utilisateur » (message
+      texte, en plus des appels d'outils) → débloque retail non-solo, fidèle à la thèse 8+ tours.
+      Touche `policy.py` (émettre un message) + `loop.py`/`Action` (type message) + adaptateur
+      (passer le texte à `gym.step`). ~sous-chantier dédié.
+- [ ] Alternative de repli : mesurer d'abord en tool-only sur retail (biais assumé, borne basse)
+      pour valider les courbes baseline-vs-WM avant d'investir la capacité dialogue.
+- [ ] Corriger aussi le placeholder `ARGS` dans `policy._SYS` (args réels) — visible dès telecom.
 
 ## Étape 3 — mesures de référence (livrable Phase 1)
 
@@ -164,8 +192,15 @@ pytest -q                                                      # doit passer les
       `predict` → `model.predict_next(...)`, `divergence` → `1 - cos(ŝ', E_state(obs))`,
       `score_to_goal` → distance latente à `E_state(goal)`. **loop.py ne change pas.**
 - [ ] Re-mesurer la courbe réussite-vs-tours avec le JEPA latent.
-- [ ] **Phase 3** : brancher le **RAG gated par la surprise** (aujourd'hui tracé sans agir,
-      `loop.py` étape 5).
+- [x] **Phase 3 — KB v0 FAITE (2026-07-13)** : `agents/knowledge.py` charge les **policy.md
+      de τ²** (chunk par règle atomique + retriever **BM25** sans dépendance) ; `loop.py` étape 5
+      **récupère la KB *gated par la surprise*** (uniquement quand δ>seuil) et trace les règles
+      dans `TraceStep.retrieved_facts`. Flags : `orchestrator.use_rag`, `rag_top_k` ;
+      `eval.kb_policy_path` / `eval.tau2_data_dir`. Inspecter : `morpheus inspect-kb --domain
+      retail --data-dir <τ²>/data --query "<état surprenant>"`. 7 tests verts (`test_knowledge.py`).
+- [ ] **Phase 3 — reste** : agir sur `route` (réinjecter `retrieved_facts` dans la politique →
+      `replanifie` si ERROR / `assimile` si NOVELTY). Aujourd'hui la KB est récupérée + tracée,
+      pas encore consommée. Retriever dense (sentence-transformers) = optionnel, Phase 4.
 - [ ] **Phase 4** : routeur de surprise appris (5 signaux de specs/01) ; POC **DSPy** sur
       `agents/policy.py` (optimiseur avec la réussite-vs-tours comme métrique).
 
@@ -177,6 +212,7 @@ pytest -q                                                      # doit passer les
 pytest -q                                          # 16 tests + 2 skip torch (sans GPU)
 morpheus run --config configs/phase1.yaml          # tout en stub+mock (sanity, sans GPU)
 morpheus inspect-data --source synthetic           # aperçu des transitions JEPA
+morpheus inspect-kb --domain retail --data-dir <τ²>/data --query "cancel delivered order"  # KB (RAG)
 export PYTHONIOENCODING=utf-8                       # si la sortie console casse (Windows surtout)
 ```
 

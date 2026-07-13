@@ -48,6 +48,14 @@ def main(argv: list[str] | None = None) -> int:
     di.add_argument("--alfworld", action="store_true")
     di.add_argument("--steps-key", default=None)
 
+    ik = sub.add_parser("inspect-kb",
+                        help="charger une policy τ² en KB, lister les règles et tester une requête")
+    ik.add_argument("--domain", default="retail", help="retail | telecom | airline | mock")
+    ik.add_argument("--policy", default=None, help="chemin direct d'un policy.md (sinon dérivé du domaine)")
+    ik.add_argument("--data-dir", default=None, help="racine des données τ² (sinon $TAU2_DATA_DIR / ./tau2-bench/data)")
+    ik.add_argument("--query", default=None, help="requête de test (ex. un état surprenant)")
+    ik.add_argument("--k", type=int, default=3, help="nb de règles à récupérer")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "check-llm":
@@ -67,6 +75,22 @@ def main(argv: list[str] | None = None) -> int:
         trans = load_transitions(args.source, limit=args.limit,
                                  alfworld=args.alfworld, steps_key=args.steps_key)
         print(describe_records(trans, k=5))
+        return 0
+
+    if args.cmd == "inspect-kb":
+        from .agents.knowledge import KnowledgeBase, locate_policy
+
+        path = locate_policy(args.domain, args.policy, args.data_dir)
+        kb = KnowledgeBase.from_policy_file(path, args.domain)
+        print(f"KB {args.domain!r} ← {path}")
+        print(f"{len(kb)} règles, {len(kb.sections)} sections\n")
+        for r in kb.rules:
+            print(f"  • [{r.section or '(intro)'}] {' '.join(r.text.split())[:110]}")
+        if args.query:
+            print(f"\nRequête : {args.query!r}")
+            hits = kb.score(args.query)[: args.k]
+            for s, r in hits:
+                print(f"  [{s:5.2f}] [{r.section or '(intro)'}] {' '.join(r.text.split())[:100]}")
         return 0
 
     if args.cmd == "run":
