@@ -94,7 +94,14 @@ class JepaWorldModel:
         return self._predict_latent(state.text, str(action)).tolist()
 
     def score_to_goal(self, goal: str, state_text: str) -> float:
-        """Proximité au but ∈ [0, 1] : cos latent (proj état, proj but) ramené à [0, 1]."""
+        """Proximité au but ∈ [0, 1] : cos latent (proj état, proj but) ramené à [0, 1].
+
+        ⚠️ PROXY NON VALIDÉ (au même titre que le Jaccard qu'il remplace). Suppose que l'espace
+        latent est *goal-relative* : rien ne le garantit tant que `proj` n'est pas entraîné
+        conditionné sur le but (`P(z,a,g)`) ou avec un terme d'alignement but↔état-terminal.
+        Gate de l'étape 4 : `scripts/validate_goal_signal.py` (H1 monotonie sur succès,
+        H2 séparation succès/échec) sur de VRAIES trajectoires τ². Ne PAS traiter ce score
+        comme validé avant que ce harnais ne passe."""
         return max(0.0, min(1.0, (_cos(self._proj(state_text), self._proj(goal)) + 1.0) / 2.0))
 
     def divergence(self, predicted, real_text: str) -> float:

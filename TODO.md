@@ -207,8 +207,25 @@ Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo 
       disait « loop.py ne change pas » mais c'était incompatible avec `divergence` côté WM.
       **Limite v0** : lookahead latent à **1 pas** (pas de décodage latent→texte pour proposer
       plus loin via Qwen) ; `horizon>1` ⇒ politique en espace latent, chantier ultérieur.
-- [ ] Re-mesurer la courbe réussite-vs-tours avec le JEPA latent (sur τ²-bench, JEPA entraîné
-      sur sentence_transformer + APIGen — le smoke hashing/synthetic ne guide pas le mock).
+- [ ] **⛔ GATE étape 4 — valider le signal goal-relative de `score_to_goal`** (sinon c'est un
+      PROXY, déjà documenté comme tel dans `jepa_world_model.py`). Harnais **écrit** :
+      `scripts/validate_goal_signal.py` (H1 monotonie sur succès via Spearman t↑vs score↑ ;
+      H2 pente succès > échec ; H3 `score_after<score_before` vs annotation ERREUR/NOUVEAUTÉ).
+      Stats par permutation (numpy pur), vérifié sur jeux plantés (signal→PASS, nul→FAIL).
+      **BLOQUÉ sur 3 pré-requis manquants** (état 2026-07-13) :
+      1. **0 trajectoire τ² RÉSOLUE** : les 6 épisodes réels (`runs/qwen_tau2_*`) sont tous
+         succès=0, échec sur le **bug ARGS placeholder** (`_SYS` : `{"clef":"valeur"}` → outils en
+         erreur). ⇒ corriger `_SYS`/politique pour des args réels PUIS relancer un vrai run τ²
+         (assez de résolus ET d'échoués pour H1/H2).
+      2. **Pas de JEPA sémantique** : seul `jepa.pt` = hashing/synthetic (bruit + token-leak).
+         ⇒ entraîner sur **sentence_transformer + APIGen** (⚠️ garder `transformers<5`, cf.
+         Journal §2 — un mauvais install casse le tokenizer vLLM du serveur en cours).
+      3. **`goal` désormais persisté** dans `episodes.jsonl` (fait : 1 ligne dans `runner.py`) —
+         les 6 runs existants sont d'AVANT ce fix, donc sans goal → à re-générer.
+      Lancer ensuite : `python scripts/validate_goal_signal.py --episodes runs/<run>/episodes.jsonl
+      --checkpoint checkpoints/jepa/jepa.pt --labels <annotations_manuelles>.jsonl`.
+      Si H1/H2 FAIL ⇒ entraîner `P(z,a,g)` conditionné OU terme d'alignement but↔état-terminal.
+- [ ] Re-mesurer la courbe réussite-vs-tours avec le JEPA latent (après le gate ci-dessus).
 - [x] **Phase 3 — KB v0 FAITE (2026-07-13)** : `agents/knowledge.py` charge les **policy.md
       de τ²** (chunk par règle atomique + retriever **BM25** sans dépendance) ; `loop.py` étape 5
       **récupère la KB *gated par la surprise*** (uniquement quand δ>seuil) et trace les règles
