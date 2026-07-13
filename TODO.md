@@ -7,7 +7,8 @@
 
 ```bash
 git clone https://github.com/ichiriac/morpheus.git && cd morpheus
-bash scripts/runpod_setup.sh                 # venv + vllm + morpheus[openai,anthropic,dev]
+bash scripts/install_pinned.sh               # pile FIGÉE (vllm 0.10.2 + torch cu128 + transformers<5)
+                                             # ⚠️ PAS runpod_setup.sh (vllm>=0.6.0 → torch cu130, casse : cf. Journal §1)
 source .venv/bin/activate
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader   # ← choisir la quant selon la VRAM
 ```
@@ -30,16 +31,29 @@ Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Q
 ## État actuel
 
 - **Specs** `specs/00`→`05` (contexte, archi, bench, scaffold, RunPod+Qwen, entraînement JEPA).
-- **Code testé sans GPU** : **17 tests verts + 2 skip torch**. Boucle fermée MPC + LLM-as-world-model,
+- **Code testé** : **19 tests verts** (les 2 tests torch tournent une fois torch installé ; 17+2 skip sans GPU). Boucle fermée MPC + LLM-as-world-model,
   env mock, métrique réussite-vs-tours, connecteurs LLM (stub/vLLM/Anthropic), pipeline JEPA
   (data/encoders/model/losses/train), adaptateur τ²-bench (squelette `TODO(tau2)`).
 - **Piste A FAITE sur GPU (session 2026-07-12)** : Qwen3-32B-AWQ servi par vLLM sur A40,
-  `check-llm` = OUI ✅, sanity baseline mock 5 tâches = 100 %. WM smoke en cours (1 tâche).
-- **Pas encore fait sur GPU** : run world-model complet, câblage τ²-bench, entraînement JEPA réel, wiring JepaWorldModel.
+  `check-llm` = OUI ✅, sanity baseline mock 5 tâches = 100 %.
+- **Piste A étape 1 TERMINÉE (session 2026-07-13, après réinstall serveur)** : sanity world-model
+  `qwen_mock_fast.yaml` = **100 % (3 tâches, bucket 4 tours, ~69 s)**. Chemin WM validé sans erreur.
+  (Baseline ≈ WM sur le mock : attendu, trop simple — la vraie mesure c'est τ²-bench.)
+- **Piste B avancée (2026-07-13)** : smoke `train-jepa` **converge** (val pred 0.254→0.062,
+  `checkpoints/jepa/jepa.pt`) ; `inspect-data` sur `hf:Salesforce/APIGen-MT-5k` OK (44 transitions,
+  normalisation `from_messages` correcte).
+- **Pas encore fait sur GPU** : câblage τ²-bench, vrai run JEPA (sentence_transformer + APIGen), wiring JepaWorldModel.
 
-## ⚠️ Journal d'environnement (session 2026-07-12) — NE PAS re-découvrir
+## ⚠️ Journal d'environnement — NE PAS re-découvrir
 
-Le pod A40 a un **driver CUDA 12.8** (`nvidia-smi` → 570.211.01). Pièges rencontrés et résolus :
+> **MAJ 2026-07-13 (réinstall serveur)** : le pod A40 est reprovisionné avec un **driver CUDA 13.0**
+> (`nvidia-smi` → 580.126.20), plus récent que le 12.8 d'origine. Un driver plus récent est
+> **rétro-compatible** : la pile pinned cu128 ci-dessous tourne telle quelle (vérifié `torch.cuda`=True,
+> vllm 0.10.2 sert Qwen sans souci). Le cache HF `/workspace/.hf-cache` a été perdu à la réinstall →
+> re-download des poids (rapide ici, ~20 s de load). **Install : utiliser `scripts/install_pinned.sh`**
+> (pile figée du journal), **PAS** `runpod_setup.sh` (`vllm>=0.6.0` casse, cf. §1).
+
+Le pod A40 d'origine avait un **driver CUDA 12.8** (`nvidia-smi` → 570.211.01). Pièges rencontrés et résolus :
 
 1. **`vllm>=0.6.0` installe vLLM 0.25 → torch cu130 (CUDA 13)** → crash `NVIDIA driver too old (12080)`.
    **Fix** : pile figée en `vllm==0.10.2` + `torch==2.8.0+cu128` (match exact driver 12.8) :
@@ -98,7 +112,7 @@ morpheus check-llm --config configs/qwen_local.yaml            # doit finir par 
       sans effet sur le mock, mais **à corriger dans `_SYS` avant τ²-bench** (args réels requis).
 - [x] Sanity baseline mock (2026-07-12) : `--no-world-model --tasks 5` = **100 %** (~2 min).
       Boucle MPC end-to-end validée avec Qwen réel.
-- [ ] **REPRISE** : sanity world-model — **utiliser la config RAPIDE** (résout la lenteur du §6) :
+- [x] **FAIT (2026-07-13)** : sanity world-model via la config RAPIDE = **100 % (3 tâches, ~69 s)**.
       ```bash
       morpheus run --config configs/qwen_mock_fast.yaml --out runs/qwen_wm_fast   # K=2, H=1, 3 tâches, concurrency=4
       ```
@@ -117,10 +131,10 @@ morpheus train-jepa --config configs/jepa.yaml                 # smoke synthetic
 pytest -q                                                      # doit passer les 2 tests torch (skip hors GPU)
 ```
 
-- [ ] Smoke `train-jepa` converge (perte `pred` décroît).
-- [ ] **Vérifier la normalisation d'un vrai dataset AVANT gros run** :
-      `morpheus inspect-data --source hf:Salesforce/APIGen-MT-5k --limit 20`
-      (si l'aperçu est faux → ajuster `from_messages` dans `src/morpheus/jepa/data.py`).
+- [x] Smoke `train-jepa` converge (2026-07-13) : val pred 0.254→0.062, `checkpoints/jepa/jepa.pt`.
+- [x] **Normalisation d'un vrai dataset vérifiée (2026-07-13)** :
+      `morpheus inspect-data --source hf:Salesforce/APIGen-MT-5k --limit 20` = 44 transitions,
+      `from_messages` correct (obs=message / action=tool call / next_obs=résultat d'outil).
 - [ ] Vrai run : éditer `configs/jepa.yaml` → `source: hf:Salesforce/APIGen-MT-5k`,
       `encoder: sentence_transformer`, `epochs: 50`.
 

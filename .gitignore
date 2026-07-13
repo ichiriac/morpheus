@@ -23,6 +23,9 @@ checkpoints/
 *.pt
 *.ckpt
 
+# Logs de session (install / serveur vLLM)
+*.log
+
 # Secrets
 .env
 *.key
