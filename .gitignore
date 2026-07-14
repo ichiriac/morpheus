@@ -37,6 +37,13 @@ checkpoints/*
 # mais versionnée pour restaurer/réentraîner à l'identique). Cf. INSTALL.md §Restauration.
 !data/tau2_replay/
 !data/tau2_replay/*.jsonl
+# Dataset du routeur (jointure traces↔annotations, régénérable via build_router_dataset.py)
+# + checkpoint du routeur appris (Phase 4 v0, CV 0.977 vs heuristique 0.817) : versionnés
+# pour reproduire la mesure et servir le routeur sans réentraîner.
+!data/router/
+!data/router/*.jsonl
+!checkpoints/router/
+!checkpoints/router/**
 
 # Secrets
 .env

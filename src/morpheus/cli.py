@@ -41,6 +41,17 @@ def main(argv: list[str] | None = None) -> int:
     tj = sub.add_parser("train-jepa", help="entraîner le world-model latent JEPA (Phase 2)")
     tj.add_argument("--config", required=True, help="chemin du YAML JEPA (cf. configs/jepa.yaml)")
 
+    tr = sub.add_parser("train-router",
+                        help="entraîner le routeur de surprise appris (Phase 4) — CPU, numpy pur")
+    tr.add_argument("--dataset", required=True,
+                    help="dataset.jsonl produit par scripts/build_router_dataset.py")
+    tr.add_argument("--out", default="checkpoints/router", help="dossier de sortie (router.json)")
+    tr.add_argument("--folds", type=int, default=5, help="plis de validation croisée stratifiée")
+    tr.add_argument("--epochs", type=int, default=3000)
+    tr.add_argument("--lr", type=float, default=0.5)
+    tr.add_argument("--l2", type=float, default=1e-2)
+    tr.add_argument("--seed", type=int, default=0)
+
     di = sub.add_parser("inspect-data",
                         help="charger une source de trajectoires et afficher un aperçu normalisé")
     di.add_argument("--source", required=True, help="synthetic | jsonl:<path> | hf:<name>")
@@ -68,6 +79,12 @@ def main(argv: list[str] | None = None) -> int:
 
         train(JepaConfig.load(args.config))
         return 0
+
+    if args.cmd == "train-router":
+        from .router.train import train_router
+
+        return train_router(args.dataset, args.out, folds=args.folds, epochs=args.epochs,
+                            lr=args.lr, l2=args.l2, seed=args.seed)
 
     if args.cmd == "inspect-data":
         from .jepa.data import describe_records, load_transitions

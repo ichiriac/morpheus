@@ -413,6 +413,27 @@ Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo 
             **Routage Phase 1 INCHANGÉ** (2 signaux) : comparabilité des runs préservée ;
             `as_vector()` fige l'ordre des features (None ≠ 0 : indicateurs sondé/non-sondé).
             Tests : `tests/test_signals.py` (7) ; suite complète 49 verts.
+      - [x] **ROUTEUR APPRIS v0 ENTRAÎNÉ (2026-07-14) — bat la règle Phase 1** :
+            pipeline complet `scripts/build_router_dataset.py` (jointure traces↔annotations,
+            recompute hors-ligne fidèle à loop.py via `router/features.py` — même détecteur
+            d'erreur τ², même requête KB/mémoire, replay FactMemory) → `morpheus train-router`
+            (`router/train.py` : régression logistique numpy pur, gradient À LA MAIN, CV
+            stratifiée 5 plis, baselines majoritaire + heuristique Phase 1, p par permutation).
+            **Résultat sur les 109 annotations** : balanced accuracy **0.977** out-of-fold
+            (29/30 ERREUR, 78/79 NOUVEAUTÉ) vs heuristique Phase 1 **0.817** (19/30 ERREUR —
+            aveugle aux boucles sans progrès), **Δ +0.160, p≈0**. Poids lisibles :
+            tool_error +2.29 · is_user_turn −1.47 (user_new_info→NOVELTY) · repeated_tool
+            +1.32 (loop_no_progress→ERROR) · familiarity +1.16 (⚠️ SENS INVERSE de l'intuition
+            specs/01 : le déjà-vu lexical ⇒ ERREUR/stagnation, pas extension). Artefacts
+            versionnés : `data/router/dataset.jsonl` + `checkpoints/router/router.json`.
+            **Caveats honnêtes** : (1) annotateur = modèle (relecture humaine recommandée) et
+            la rubrique d'annotation UTILISE des features observables (tool_error,
+            loop_no_progress) → le score mesure d'abord « le vecteur reconstruit la rubrique » ;
+            (2) 9 épisodes seulement → durcir avec CV leave-one-episode-out + labels frais ;
+            (3) direction (score_before/after) NON sondée localement (sans torch) — re-générer
+            le dataset avec `--checkpoint checkpoints/jepa_tau2_align/jepa.pt` sur le pod.
+            **Reste pour boucler Phase 4** : brancher `RouterModel.route` dans loop.py derrière
+            un flag (`router_checkpoint`), mesurer en live vs règle Phase 1 sur τ²-retail.
 
 ---
 
