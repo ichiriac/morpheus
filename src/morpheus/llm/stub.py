@@ -33,6 +33,13 @@ class StubLLM:
         if "[PREDICT_NEXT_STATE]" in last:
             return "PRED: l'action progresse d'un cran vers l'objectif (prédiction stub)."
 
+        # --- Mode sonde « réductibilité » (signal du routeur de surprise) ---
+        if "[EXPLAIN_GAP]" in last:
+            # heuristique stable : recouvrement prédit/réel → écart d'autant plus réductible
+            pred, real = _tokens(_extract(last, "PREDICTED")), _tokens(_extract(last, "REAL"))
+            union = len(pred | real) or 1
+            return f"REDUCTIBLE: {round(10 * len(pred & real) / union)}"
+
         # --- Mode juge de proximité au but ---
         if "[SCORE_GOAL_DISTANCE]" in last:
             # score heuristique : recouvrement de tokens état/but

@@ -69,3 +69,9 @@ class TraceStep:
     reward: float
     done: bool
     retrieved_facts: list[str] = field(default_factory=list)  # KB récupérée (RAG gated, Phase 3)
+    # --- instrumentation du routeur (Phase 4) ---
+    tool_error: bool = False          # signature de l'outil, journalisée à CHAQUE tour
+    score_before: float | None = None # proximité au but avant le pas (None hors lookahead)
+    # Vecteur complet SurpriseSignals.to_dict() quand δ > seuil (None sinon) : joignable aux
+    # annotations ERREUR/NOUVEAUTÉ par (episode, turn) → données d'entraînement du routeur.
+    signals: dict[str, Any] | None = None

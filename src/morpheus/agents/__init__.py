@@ -1,5 +1,5 @@
 from .policy import Policy
-from .surprise import SurpriseRouter
+from .surprise import SurpriseRouter, SurpriseSignals
 from .world_model import WorldModel
 
-__all__ = ["Policy", "WorldModel", "SurpriseRouter"]
+__all__ = ["Policy", "WorldModel", "SurpriseRouter", "SurpriseSignals"]

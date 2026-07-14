@@ -399,8 +399,20 @@ Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo 
 - [ ] **Phase 3 — reste** : agir sur `route` (réinjecter `retrieved_facts` dans la politique →
       `replanifie` si ERROR / `assimile` si NOVELTY). Aujourd'hui la KB est récupérée + tracée,
       pas encore consommée. Retriever dense (sentence-transformers) = optionnel, Phase 4.
-- [ ] **Phase 4** : routeur de surprise appris (5 signaux de specs/01) ; POC **DSPy** sur
-      `agents/policy.py` (optimiseur avec la réussite-vs-tours comme métrique).
+- [ ] **Phase 4** : routeur de surprise appris ; POC **DSPy** sur `agents/policy.py`
+      (optimiseur avec la réussite-vs-tours comme métrique).
+      - [x] **Signaux INSTRUMENTÉS (2026-07-14)** : `SurpriseSignals` (`agents/surprise.py`) =
+            les 5 signaux de specs/01 (amplitude δ, signature outil, direction score_before/after,
+            cohérence RAG `kb_top_score`/`kb_hits` + `memory_hits`, localité `familiarity`,
+            réductibilité) **+ 2 signaux tirés de la rubrique d'annotation réelle**
+            (`data/annotations` : `repeated_tool` ← loop_no_progress, `is_user_turn` ←
+            user_new_info). Collecté à chaque surprise, journalisé dans `TraceStep.signals`
+            (+ `tool_error`/`score_before` à chaque tour) → joignable aux 109 annotations par
+            (episode, turn). Sonde « réductibilité » opt-in (`orchestrator.use_reducibility`,
+            +1 appel LLM/surprise, sans objet en JEPA-WM — latent non verbalisable).
+            **Routage Phase 1 INCHANGÉ** (2 signaux) : comparabilité des runs préservée ;
+            `as_vector()` fige l'ordre des features (None ≠ 0 : indicateurs sondé/non-sondé).
+            Tests : `tests/test_signals.py` (7) ; suite complète 49 verts.
 
 ---
 

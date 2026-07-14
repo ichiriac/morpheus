@@ -26,6 +26,12 @@ _SYS_SCORE = (
     "Tu évalues à quel point un état est proche d'un objectif. Réponds strictement "
     "`SCORE: <entier 0-10>` où 10 = objectif atteint, 0 = très loin."
 )
+_SYS_EXPLAIN = (
+    "Tu juges l'écart entre une prédiction et la réalité, après une action d'outil. "
+    "Réponds strictement `REDUCTIBLE: <entier 0-10>` : 10 = l'écart s'explique naturellement "
+    "(information nouvelle légitime, le monde est plus riche que le plan) ; 0 = l'écart "
+    "trahit une faute de l'agent (mauvaise action, mauvaise cible, hypothèse fausse)."
+)
 
 
 class WorldModel:
@@ -48,6 +54,25 @@ class WorldModel:
             "Prédis l'état résultant."
         )
         return strip_reasoning(self.llm.complete([system(_SYS_PRED), user(prompt)]))
+
+    def explain_gap(self, predicted: str, real_text: str, action: Action | str) -> float | None:
+        """Signal « réductibilité » (specs/01 §routeur) : l'écart prédit↔réel s'explique-t-il
+        sans admettre une faute ? ∈ [0, 1] (1 = réductible ⇒ nouveauté légitime) ; None si la
+        réponse est imparsable (= non sondé, à distinguer de 0). Coût : 1 appel LLM — sondé
+        seulement sur surprise et si `orchestrator.use_reducibility`. `JepaWorldModel` ne
+        l'implémente pas (latent non verbalisable) : la boucle saute la sonde via getattr."""
+        prompt = (
+            "[EXPLAIN_GAP]\n"
+            f"[ACTION]{action}[/ACTION]\n"
+            f"[PREDICTED]{predicted}[/PREDICTED]\n"
+            f"[REAL]{real_text}[/REAL]\n"
+            "L'écart est-il réductible ?"
+        )
+        raw = strip_reasoning(self.llm.complete([system(_SYS_EXPLAIN), user(prompt)]))
+        m = re.search(r"REDUCTIBLE:\s*(\d+)", raw)
+        if not m:
+            return None
+        return max(0.0, min(1.0, int(m.group(1)) / 10.0))
 
     def score_to_goal(self, goal: str, state_text: str) -> float:
         """Proximité au but ∈ [0, 1] (1 = atteint). Judge LLM en Phase 1."""

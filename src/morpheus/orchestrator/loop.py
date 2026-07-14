@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from ..agents.knowledge import KnowledgeBase
 from ..agents.memory import FactMemory
 from ..agents.policy import Policy
-from ..agents.surprise import SurpriseRouter
+from ..agents.surprise import SurpriseRouter, SurpriseSignals, familiarity
 from ..agents.world_model import WorldModel
 from ..config import OrchestratorConfig
 from ..envs.base import Env
@@ -85,6 +85,10 @@ class Orchestrator:
         memory = FactMemory()
         total_reward = 0.0
         trace: list[TraceStep] = []
+        # Rubrique `loop_no_progress` (data/annotations) : répéter l'outil du pas précédent
+        # (qui n'avait PAS erré) = signal d'agent qui tourne en rond.
+        prev_tool: str | None = None
+        prev_tool_error = False
 
         for turn in range(1, self.cfg.max_turns + 1):
             state.turn = turn
@@ -108,7 +112,7 @@ class Orchestrator:
                 chosen = candidates[0]
                 predicted = None
                 best_score = 0.0
-                score_before = 0.0
+                score_before = None   # pas de lookahead ⇒ proximité au but non sondée
 
             # 3. EXÉCUTER un seul pas (réalité)
             step = env.step(chosen)
@@ -120,22 +124,51 @@ class Orchestrator:
             # 5. ROUTER LA SURPRISE  +  RAG *gated par la surprise* (Phase 3)
             route = None
             facts: list[str] = []
+            signals: SurpriseSignals | None = None
             if predicted is not None and delta > self.cfg.surprise_threshold:
                 score_after = self.wm.score_to_goal(state.goal, step.observation.text)
-                route = self.router.route(
+                # Récupération déclenchée UNIQUEMENT par la surprise (économie du gated) : on
+                # interroge, avec l'état vrai + l'action qui a surpris, la KB statique (policy) ET
+                # la mémoire épisodique (faits observés). Cette dernière sort du régime redondant.
+                # Les scores de récupération sont capturés au passage : signal « cohérence RAG ».
+                query = f"{chosen} {step.observation.text}"
+                kb_top: float | None = None
+                kb_hits: int | None = None
+                if self.cfg.use_rag and self.kb is not None:
+                    top = [(s, r) for s, r in self.kb.score(query) if s > 0.0][: self.cfg.rag_top_k]
+                    kb_top = top[0][0] if top else 0.0
+                    kb_hits = len(top)
+                    facts += [r.as_fact() for _, r in top]
+                mem_hits: int | None = None
+                if self.cfg.use_memory:
+                    mem_rules = memory.retrieve(query, self.cfg.memory_top_k)
+                    mem_hits = len(mem_rules)
+                    facts += [r.as_fact() for r in mem_rules]
+                # Sonde « réductibilité » (opt-in : +1 appel LLM). Une prédiction latente (JEPA)
+                # n'est pas verbalisable → sonde sans objet (reste None).
+                reducibility: float | None = None
+                if self.cfg.use_reducibility and isinstance(predicted, str):
+                    probe = getattr(self.wm, "explain_gap", None)
+                    if callable(probe):
+                        reducibility = probe(predicted, step.observation.text, chosen)
+                # Vecteur de signaux (tableau specs/01 + rubrique data/annotations) : journalisé
+                # dans la trace (matière première du routeur appris, Phase 4) ; le routage reste
+                # la règle Phase 1 (2 signaux) pour garder les runs comparables.
+                signals = SurpriseSignals(
                     delta=delta,
                     tool_error=step.observation.tool_error,
                     score_before=score_before,
                     score_after=score_after,
+                    kb_top_score=kb_top,
+                    kb_hits=kb_hits,
+                    memory_hits=mem_hits,
+                    familiarity=familiarity(step.observation.text,
+                                            (res for _, res in transcript)),
+                    repeated_tool=(chosen.tool == prev_tool and not prev_tool_error),
+                    is_user_turn=(chosen.tool == "respond_to_user"),
+                    reducibility=reducibility,
                 )
-                # Récupération déclenchée UNIQUEMENT par la surprise (économie du gated) : on
-                # interroge, avec l'état vrai + l'action qui a surpris, la KB statique (policy) ET
-                # la mémoire épisodique (faits observés). Cette dernière sort du régime redondant.
-                query = f"{chosen} {step.observation.text}"
-                if self.cfg.use_rag and self.kb is not None:
-                    facts += [r.as_fact() for r in self.kb.retrieve(query, self.cfg.rag_top_k)]
-                if self.cfg.use_memory:
-                    facts += [r.as_fact() for r in memory.retrieve(query, self.cfg.memory_top_k)]
+                route = self.router.route(signals)
                 if facts:
                     # ARMÉS pour le PROPOSER du tour suivant : replanifier (ERROR) / assimiler (NOVELTY).
                     pending_facts, pending_route = facts, route
@@ -152,6 +185,9 @@ class Orchestrator:
                     reward=step.reward,
                     done=step.done,
                     retrieved_facts=facts,
+                    tool_error=step.observation.tool_error,
+                    score_before=score_before,
+                    signals=signals.to_dict() if signals is not None else None,
                 )
             )
 
@@ -159,6 +195,7 @@ class Orchestrator:
             state.observation = step.observation
             state.history.append(str(chosen))
             transcript.append((str(chosen), step.observation.text))
+            prev_tool, prev_tool_error = chosen.tool, step.observation.tool_error
             if self.cfg.use_memory:   # mémorise les faits atomiques de l'observation réelle
                 memory.observe(str(chosen), step.observation)
 

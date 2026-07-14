@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from morpheus.agents.policy import Policy
-from morpheus.agents.surprise import ERROR, NOVELTY, SurpriseRouter, divergence
+from morpheus.agents.surprise import ERROR, NOVELTY, SurpriseRouter, SurpriseSignals, divergence
 from morpheus.agents.world_model import WorldModel
 from morpheus.config import Config, LLMConfig, OrchestratorConfig
 from morpheus.envs.mock_env import MockRetailEnv, make_mock_env
@@ -77,9 +77,14 @@ def test_divergence_bounds():
 
 def test_surprise_router_rules():
     r = SurpriseRouter()
-    assert r.route(delta=0.9, tool_error=True, score_before=0.5, score_after=0.5) == ERROR
-    assert r.route(delta=0.9, tool_error=False, score_before=0.6, score_after=0.4) == ERROR
-    assert r.route(delta=0.9, tool_error=False, score_before=0.4, score_after=0.6) == NOVELTY
+    assert r.route(SurpriseSignals(delta=0.9, tool_error=True,
+                                   score_before=0.5, score_after=0.5)) == ERROR
+    assert r.route(SurpriseSignals(delta=0.9, tool_error=False,
+                                   score_before=0.6, score_after=0.4)) == ERROR
+    assert r.route(SurpriseSignals(delta=0.9, tool_error=False,
+                                   score_before=0.4, score_after=0.6)) == NOVELTY
+    # direction non sondée (pas de scores) : pas de preuve de faute ⇒ NOVELTY, comme avant
+    assert r.route(SurpriseSignals(delta=0.9, tool_error=False)) == NOVELTY
 
 
 def test_config_loads_defaults():

@@ -44,6 +44,11 @@ class OrchestratorConfig:
     # est déjà dans le system_context ; les faits observés, non). Ablatable indépendamment.
     use_memory: bool = False
     memory_top_k: int = 3
+    # Sonde « réductibilité » (signal 4 du tableau specs/01) : sur surprise, demande au
+    # world-model LLM si l'écart prédit↔réel s'explique sans faute (+1 appel LLM/surprise).
+    # Sans objet avec JepaWorldModel (latent non verbalisable → signal None). Off par défaut :
+    # zéro surcoût, zéro changement de comportement.
+    use_reducibility: bool = False
 
 
 @dataclass
