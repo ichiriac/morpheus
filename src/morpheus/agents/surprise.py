@@ -22,6 +22,11 @@ from typing import Any, ClassVar, Iterable
 ERROR = "ERROR"
 NOVELTY = "NOVELTY"
 
+# Outil synthétique « parler à l'utilisateur » (cf. envs/tau2_adapter). Répéter CET outil
+# est du dialogue normal, pas une boucle — exclu du signal `repeated_tool` (revue des
+# annotations 2026-07-14 : 18/28 répétitions étaient des respond_to_user légitimes).
+DIALOGUE_TOOL = "respond_to_user"
+
 
 def _tokens(s: str) -> set[str]:
     return set(re.findall(r"[a-zA-Z_]+", s.lower()))
@@ -71,7 +76,7 @@ class SurpriseSignals:
     kb_hits: int | None = None            # nb de règles pertinentes (score > 0, top-k)
     memory_hits: int | None = None        # idem, mémoire épisodique
     familiarity: float | None = None      # localité : recouvrement max avec les obs passées
-    repeated_tool: bool = False           # même outil qu'au pas précédent (qui n'avait pas erré)
+    repeated_tool: bool = False           # même outil HORS DIALOGUE qu'au pas précédent (sans erreur)
     is_user_turn: bool = False            # l'observation vient de l'utilisateur (respond_to_user)
     reducibility: float | None = None     # l'écart s'explique-t-il ? 1 = oui (sonde LLM opt-in)
 

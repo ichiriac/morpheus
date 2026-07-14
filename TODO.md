@@ -434,6 +434,26 @@ Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo 
             le dataset avec `--checkpoint checkpoints/jepa_tau2_align/jepa.pt` sur le pod.
             **Reste pour boucler Phase 4** : brancher `RouterModel.route` dans loop.py derrière
             un flag (`router_checkpoint`), mesurer en live vs règle Phase 1 sur τ²-retail.
+      - [x] **REVUE HUMAINE DES ANNOTATIONS (2026-07-14) — 3 découvertes traitées** :
+            (1) **Circularité QUANTIFIÉE** : 108/109 labels v1 = fonction mécanique de 3 features
+            (tool_error→ERR ; respond_to_user→NOV ; outil répété hors dialogue→ERR ; sinon NOV).
+            Traitement : baseline `[RUBRIQUE]` ajoutée à `train-router` — le verdict affiche
+            désormais appris-vs-rubrique (le plafond de circularité) en permanence.
+            (2) **`retail_postfix#5` t16 RETIRÉ** (109→108, 29 ERREUR / 79 NOUVEAUTÉ) : artefact
+            de troncature harnais (observation d'outil recyclée après un respond_to_user au
+            plafond de tours — cas unique, vérifié). Documenté dans data/annotations/README.md.
+            (3) **`repeated_tool` corrigé** (loop.py + router/features.py, constante partagée
+            `DIALOGUE_TOOL`) : les respond_to_user consécutifs = dialogue normal, exclus du
+            signal boucle (18/28 répétitions du corpus étaient du dialogue légitime).
+            **Chiffres après correction** : appris **0.976** (28/29 ERR, 78/79 NOV) ·
+            rubrique **0.983** · heuristique Phase 1 **0.810** · Δ appris-rubrique **−0.007**
+            ⇒ le routeur RECONSTRUIT la rubrique, il ne la dépasse pas encore (attendu).
+            Preuve par les 2 seules fautes du modèle : FN = retail#1 t15 `coherent_but_wrong`
+            (LE cas de la thèse — invisible sans direction/sémantique) ; FP = retail#0 t11
+            transfer réussi (sur-généralisation de la monoculture transfer-loops).
+            Poids sains post-fix : is_user_turn −1.47→−0.80 (plus besoin de compenser le bruit
+            dialogue), repeated_tool +1.32→+1.40. **Le prochain lot d'annotations doit viser
+            les cas hors-rubrique** : cohérent-mais-faux, détours légitimes, boucles non-transfer.
 
 ---
 

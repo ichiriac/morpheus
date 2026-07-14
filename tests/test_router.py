@@ -54,6 +54,17 @@ def test_signals_repeated_tool_after_success():
     assert sigs[1].repeated_tool is True                # même outil, le pas 1 avait RÉUSSI
 
 
+def test_repeated_dialogue_is_not_a_loop():
+    # revue 2026-07-14 : des respond_to_user consécutifs = conversation normale, PAS une boucle
+    steps = [
+        _step(1, "respond_to_user(text='votre nom ?')", "user: Mei Kovacs"),
+        _step(2, "respond_to_user(text='votre zip ?')", "user: 28236"),
+    ]
+    sigs = signals_for_episode(steps, use_memory=False)
+    assert sigs[1].repeated_tool is False               # dialogue exclu du signal boucle
+    assert sigs[1].is_user_turn is True
+
+
 def test_recorded_signals_take_precedence():
     steps = [_step(1, "toolA()", "résultat", 0.6,
                    signals={"score_before": 0.2, "score_after": 0.9, "kb_top_score": 3.3,

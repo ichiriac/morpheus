@@ -5,11 +5,29 @@ Vérité-terrain pour l'hypothèse **H3** de `scripts/validate_goal_signal.py` :
 (ERREUR) de ceux où **le monde s'est révélé plus riche que le plan** (NOUVEAUTÉ) ? Ces labels
 sont indépendants du routeur automatique (`agents/surprise.py`) — sinon le test serait circulaire.
 
-## Contenu (lot POST-FIX ARGS, 2026-07-13)
+## Contenu (lot POST-FIX ARGS, 2026-07-13 — révisé 2026-07-14)
 
-- `tau2_error_novelty.jsonl` — **109 annotations** (30 ERREUR / 79 NOUVEAUTÉ) sur 9 trajectoires
+- `tau2_error_novelty.jsonl` — **108 annotations** (29 ERREUR / 79 NOUVEAUTÉ) sur 9 trajectoires
   τ² **post-correction du bug ARGS** (commit `31a3390`). Une ligne par pas :
   `{episode, turn, label, rationale, chosen, evidence, annotator, annotated_on}`.
+
+### Révision 2026-07-14 (revue humaine du lot — 1 retrait, 109 → 108)
+
+**Retiré : `retail_postfix#5` t16** `[ERROR/tool_error]` (`chosen=respond_to_user(…)`,
+`evidence="tool: Error: User not found"`). Motif : **artefact de troncature du harnais**, pas un
+pas jugeable — après un `respond_to_user`, l'observation devrait être la réplique de l'utilisateur ;
+ici c'est l'ÉCHO de l'erreur d'outil du t15 (déjà annotée), car t16 est le dernier tour de
+l'épisode (plafond de tours atteint, le user-sim n'a jamais répondu). Le label décrivait
+l'observation recyclée, pas une faute de l'agent. Cas unique sur les 9 trajectoires (vérifié :
+aucun autre `respond_to_user` suivi d'une observation `tool:`). Ligne d'origine dans l'historique git.
+
+**Constat de la revue (circularité, à garder en tête)** : 108/109 labels du lot v1 se déduisent
+mécaniquement de 3 features observables (`tool_error` → ERREUR ; `respond_to_user` → NOUVEAUTÉ ;
+outil répété hors dialogue → ERREUR ; sinon NOUVEAUTÉ). Un routeur entraîné dessus mesure donc
+d'abord la RECONSTRUCTION de la rubrique (cf. baseline `[RUBRIQUE]` de `morpheus train-router`).
+Seul `coherent_but_wrong` (1 cas) exige un jugement au-delà — **le prochain lot doit viser cette
+classe** (cohérent-mais-faux, détours légitimes). Par ailleurs les 10 `loop_no_progress` sont TOUS
+des `transfer_to_human_agents` (~4 séquences indépendantes) : le motif « boucle » est une monoculture.
 - `trajectories/<run>/episodes.jsonl` — les trajectoires annotées, **versionnées** ici (le lot v1
   pointait sur des runs gitignorés = irreproductible). Clé de jointure `episode = "<run>#<task>"`.
 
@@ -23,10 +41,10 @@ sont indépendants du routeur automatique (`agents/surprise.py`) — sinon le te
 | **NOVELTY** | `user_new_info` | réponse utilisateur légitime (nouvelle contrainte, identité, préférence) |
 | **NOVELTY** | `tool_success` | appel réussi porteur d'information |
 
-Répartition : `user_new_info` 44 · `tool_success` 35 · `tool_error` 19 · `loop_no_progress` 10 ·
-`coherent_but_wrong` 1.
+Répartition (post-révision) : `user_new_info` 44 · `tool_success` 35 · `tool_error` 18 ·
+`loop_no_progress` 10 · `coherent_but_wrong` 1.
 
-**Pourquoi ce lot est meilleur que le v1** : **11 des 30 ERREUR sont des pas où l'outil a RÉUSSI**
+**Pourquoi ce lot est meilleur que le v1** : **11 des 29 ERREUR sont des pas où l'outil a RÉUSSI**
 (boucles + cohérent-mais-faux). Le label n'est donc **plus réductible au signal `tool_error`** (un
 input du routeur) → H3 teste enfin le pouvoir discriminant *propre* du score, pas juste « l'outil
 a planté ». Cas emblématique : `retail_postfix#1` t15 — `modify_pending_order_address` réussit sur

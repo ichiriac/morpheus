@@ -26,7 +26,7 @@ from typing import Any
 
 from ..agents.knowledge import KnowledgeBase
 from ..agents.memory import FactMemory
-from ..agents.surprise import SurpriseSignals, familiarity
+from ..agents.surprise import DIALOGUE_TOOL, SurpriseSignals, familiarity
 from ..envs.tau2_adapter import _looks_like_error
 from ..orchestrator.types import Observation
 
@@ -96,8 +96,8 @@ def signals_for_episode(
             memory_hits=mem_hits,
             familiarity=familiarity(real, past_states),
             repeated_tool=(prev_tool is not None and _tool_name(chosen) == prev_tool
-                           and not prev_tool_error),
-            is_user_turn=_tool_name(chosen) == "respond_to_user",
+                           and _tool_name(chosen) != DIALOGUE_TOOL and not prev_tool_error),
+            is_user_turn=_tool_name(chosen) == DIALOGUE_TOOL,
             reducibility=rec.get("reducibility"),
         ))
 

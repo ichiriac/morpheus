@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from ..agents.knowledge import KnowledgeBase
 from ..agents.memory import FactMemory
 from ..agents.policy import Policy
-from ..agents.surprise import SurpriseRouter, SurpriseSignals, familiarity
+from ..agents.surprise import DIALOGUE_TOOL, SurpriseRouter, SurpriseSignals, familiarity
 from ..agents.world_model import WorldModel
 from ..config import OrchestratorConfig
 from ..envs.base import Env
@@ -164,8 +164,9 @@ class Orchestrator:
                     memory_hits=mem_hits,
                     familiarity=familiarity(step.observation.text,
                                             (res for _, res in transcript)),
-                    repeated_tool=(chosen.tool == prev_tool and not prev_tool_error),
-                    is_user_turn=(chosen.tool == "respond_to_user"),
+                    repeated_tool=(chosen.tool == prev_tool and chosen.tool != DIALOGUE_TOOL
+                                   and not prev_tool_error),
+                    is_user_turn=(chosen.tool == DIALOGUE_TOOL),
                     reducibility=reducibility,
                 )
                 route = self.router.route(signals)

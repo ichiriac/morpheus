@@ -110,6 +110,25 @@ def heuristic_predictions(rows: list[dict]) -> np.ndarray:
     ])
 
 
+def rubric_predictions(rows: list[dict]) -> np.ndarray:
+    """La RUBRIQUE d'annotation elle-même, rejouée en 3 règles (revue 2026-07-14 : 108/109
+    labels du lot v1 s'en déduisent mécaniquement). C'est le plafond de circularité : tant que
+    le routeur appris ne fait que l'ÉGALER, il reconstruit la rubrique — il ne la dépasse que
+    s'il tranche les cas qu'elle ne voit pas (cohérent-mais-faux, détours)."""
+    preds = []
+    for r in rows:
+        s = r["signals"]
+        if s["tool_error"]:
+            preds.append(1.0)                # erreur explicite → ERREUR
+        elif s["is_user_turn"]:
+            preds.append(0.0)                # réponse utilisateur → NOUVEAUTÉ
+        elif s["repeated_tool"]:
+            preds.append(1.0)                # boucle sans progrès (hors dialogue) → ERREUR
+        else:
+            preds.append(0.0)                # succès d'outil porteur d'info → NOUVEAUTÉ
+    return np.asarray(preds)
+
+
 def perm_p_balanced(y_true: np.ndarray, y_pred: np.ndarray, seed: int = 0,
                     n: int = N_PERM) -> float:
     """p unilatéral H0 : la balanced accuracy observée s'obtient avec des labels permutés."""
@@ -156,6 +175,7 @@ def train_router(dataset: str, out_dir: str = "checkpoints/router", *, folds: in
     learned = confusion(y, preds)
     learned["p_perm"] = round(perm_p_balanced(y, preds, seed=seed), 4)
     heur = confusion(y, heuristic_predictions(rows))
+    rubric = confusion(y, rubric_predictions(rows))
     majority = confusion(y, np.zeros_like(y))     # « toujours NOUVEAUTÉ » (classe majoritaire)
 
     print(f"\n[APPRIS]     CV stratifiée {k} plis (out-of-fold)")
@@ -163,6 +183,9 @@ def train_router(dataset: str, out_dir: str = "checkpoints/router", *, folds: in
         print(f"      {kk}: {v}")
     print("[HEURISTIQUE Phase 1]  (tool_error + direction, mêmes exemples)")
     for kk, v in heur.items():
+        print(f"      {kk}: {v}")
+    print("[RUBRIQUE]  (les 3 règles d'annotation rejouées — le plafond de circularité)")
+    for kk, v in rubric.items():
         print(f"      {kk}: {v}")
     print("[MAJORITAIRE]  (toujours NOUVEAUTÉ)")
     print(f"      accuracy: {majority['accuracy']}  balanced_accuracy: {majority['balanced_accuracy']}")
@@ -173,6 +196,14 @@ def train_router(dataset: str, out_dir: str = "checkpoints/router", *, folds: in
                else "❌ pas (encore) de gain démontré sur la règle Phase 1")
     print(f"\n=== VERDICT === {verdict} "
           f"(Δ balanced_accuracy = {gain:+.3f}, p_perm = {learned['p_perm']})")
+    gap_rubric = learned["balanced_accuracy"] - rubric["balanced_accuracy"]
+    if gap_rubric <= 0:
+        print(f"    ⚠️  appris ≤ rubrique ({gap_rubric:+.3f}) : le modèle RECONSTRUIT la rubrique "
+              "d'annotation, il ne la dépasse pas encore — attendu tant que le dataset ne "
+              "contient pas les cas qu'elle ne tranche pas (cohérent-mais-faux, détours).")
+    else:
+        print(f"    ✅ appris > rubrique ({gap_rubric:+.3f}) : le modèle tranche au-delà des "
+              "règles d'annotation.")
 
     # 2. modèle final : fit sur TOUT le corpus (le checkpoint servi en Phase 4)
     mu, sigma = standardize(X)
@@ -180,7 +211,7 @@ def train_router(dataset: str, out_dir: str = "checkpoints/router", *, folds: in
     model = RouterModel(
         feature_names=names, mu=mu, sigma=sigma, w=w, b=b,
         meta={"dataset": str(dataset), "n": int(len(y)), "n_error": n_err,
-              "cv": learned, "heuristic": heur, "folds": k,
+              "cv": learned, "heuristic": heur, "rubric": rubric, "folds": k,
               "epochs": epochs, "lr": lr, "l2": l2, "seed": seed},
     )
     out = Path(out_dir)
