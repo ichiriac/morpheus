@@ -454,6 +454,54 @@ Découverte de câblage : **retail n'a aucun `ticket`** (0/114) → pas de solo 
             Poids sains post-fix : is_user_turn −1.47→−0.80 (plus besoin de compenser le bruit
             dialogue), repeated_tool +1.32→+1.40. **Le prochain lot d'annotations doit viser
             les cas hors-rubrique** : cohérent-mais-faux, détours légitimes, boucles non-transfer.
+      - [x] **ROUTEUR BRANCHÉ dans la boucle derrière un flag (2026-07-14)** :
+            `orchestrator.router_checkpoint` (défaut `None` = règle Phase 1 → runs existants
+            inchangés). `loop.py` n'a PAS bougé : `RouterModel.route` a déjà le contrat de
+            `SurpriseRouter.route` — le contrat est désormais explicite (`agents/surprise.py::Router`,
+            Protocol) et la substitution vit dans `eval/runner.py::build_router`. numpy importé
+            paresseusement (extra `[jepa]`/`[dev]`), pas de torch à l'inférence.
+            **GARDE DE RÉGIME (le vrai piège, trouvé en câblant)** : `as_vector()` épingle à 0 un
+            signal non sondé, valeur que le modèle lit comme RÉELLE et hors distribution ⇒ dérive
+            CONSTANTE du logit. Le dataset est bâti avec KB+mémoire sondées (défauts de
+            `build_router_dataset.py`) alors que `qwen_tau2*.yaml` laissent `use_rag`/`use_memory`
+            à **False** ⇒ **−2.4 à −2.7 logit vers NOUVEAUTÉ à chaque décision**, en silence. Les
+            indicateurs `*_probed` étaient censés couvrir ce cas mais sont CONSTANTS au train ⇒
+            gradient nul ⇒ poids 0 ⇒ inertes : le modèle ne peut PAS détecter qu'il est hors régime.
+            `RouterModel.regime_drift()` le chiffre hors-ligne (le `mu` d'une colonne indicatrice
+            EST le taux de sondage du train — lisible sur les checkpoints déjà versionnés) et
+            `build_router` **refuse le run** au-delà de `MAX_REGIME_DRIFT=1.0` logit, AVANT le run
+            GPU. ⇒ **pour mesurer en live : `use_rag: true` + `use_memory: true`** dans la config,
+            ou ré-entraîner sur le régime visé. Tests : 6 de plus (`test_router.py`), suite **80 verts**.
+      - [x] **DATASET AVEC DIRECTION MESURÉ (2026-07-14) — 2 résultats qui CHANGENT le plan** :
+            `data/router/dataset.jsonl` re-généré avec `--checkpoint jepa_tau2_align` (direction
+            sondée 99/108 ; committer cet artefact). `direction` prend enfin un poids réel
+            **−0.639**, du BON signe (s'éloigner du but ⇒ ERREUR). Mais :
+            1. **⛔ La direction N'ATTRAPE PAS `coherent_but_wrong`** — hypothèse du TODO
+               **RÉFUTÉE** sur le seul exemple disponible. `retail_postfix#1` t15 :
+               score_before 0.6206 → score_after 0.6251, **direction = +0.0045** — signe INVERSE
+               de ce qu'il faudrait, et magnitude dans le bruit (~2,5 % de l'étendue intra-épisode
+               de 0.176). L'action cohérente-mais-fausse se RAPPROCHE du but dans le latent.
+               Toujours FN out-of-fold. Idem le FP (retail#0 t11) : direction −0.0148. **Les deux
+               seuls cas qui comptent ont |direction| < 0.015** ⇒ sous but GÉNÉRIQUE, la direction
+               à 1 pas est inexploitable (cohérent avec le caveat « rollout 1-pas bruité » déjà
+               noté). ⇒ le nœud n'est pas le sondage : c'est le **but d'issue par tâche**
+               (+ horizon>1), sinon un signal sémantique dédié.
+            2. **⚠️ La règle Phase 1 S'EFFONDRE quand la direction est sondée : 0.810 → 0.646**
+               (FP **0 → 26**, recall_novelty 1.0 → 0.671). Son branchement `d < 0 ⇒ ERREUR`
+               seuille DUR un signal bruité ; il ne marchait que parce que la direction n'était
+               JAMAIS sondée (la règle dégénérait en « tool_error seul »). Le routeur appris, lui,
+               n'en fait qu'un poids doux (−0.639) et encaisse le bruit. ⇒ **le « 0.810 » du TODO
+               ne décrit PAS la baseline live** : en JEPA-WM, `loop.py` sonde score_before/after,
+               donc la règle Phase 1 live vaut ~0.646 et Δ(appris − Phase 1) = **+0.330**, pas
+               +0.166. À énoncer tel quel : l'écart vient autant de l'effondrement de la baseline
+               que du mérite du routeur.
+            **Inchangé** : appris 0.976 vs rubrique 0.983 (Δ −0.007) — la circularité reste le
+            plafond, et seules des annotations hors-rubrique la lèveront (cf. puce précédente).
+            **Checkpoint versionné RÉ-ENTRAÎNÉ sur ce dataset** (`checkpoints/router/router.json`) :
+            il est désormais reproductible depuis `data/router/dataset.jsonl` (même régime :
+            kb+mémoire+direction sondées). Son `meta` reflète les chiffres ci-dessus (heuristique
+            Phase 1 = 0.646, pas 0.810 : voir point 2). L'ancien checkpoint (kb+mémoire seules,
+            sans direction) reste dans l'historique git (`fea09ca`).
 
 ---
 

@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 from ..agents.knowledge import KnowledgeBase
 from ..agents.memory import FactMemory
 from ..agents.policy import Policy
-from ..agents.surprise import DIALOGUE_TOOL, SurpriseRouter, SurpriseSignals, familiarity
+from ..agents.surprise import (DIALOGUE_TOOL, Router, SurpriseRouter, SurpriseSignals,
+                               familiarity)
 from ..agents.world_model import WorldModel
 from ..config import OrchestratorConfig
 from ..envs.base import Env
@@ -36,7 +37,7 @@ class Orchestrator:
         policy: Policy,
         world_model: WorldModel,
         cfg: OrchestratorConfig,
-        router: SurpriseRouter | None = None,
+        router: Router | None = None,
         kb: KnowledgeBase | None = None,
     ) -> None:
         self.policy = policy
@@ -152,8 +153,10 @@ class Orchestrator:
                     if callable(probe):
                         reducibility = probe(predicted, step.observation.text, chosen)
                 # Vecteur de signaux (tableau specs/01 + rubrique data/annotations) : journalisé
-                # dans la trace (matière première du routeur appris, Phase 4) ; le routage reste
-                # la règle Phase 1 (2 signaux) pour garder les runs comparables.
+                # dans la trace (matière première du routeur appris) ET consommé par `route`.
+                # Qui route dépend de la config (`router_checkpoint`) : règle Phase 1 par défaut,
+                # routeur appris sinon — les deux lisent le MÊME vecteur, donc les runs restent
+                # comparables à signaux identiques.
                 signals = SurpriseSignals(
                     delta=delta,
                     tool_error=step.observation.tool_error,

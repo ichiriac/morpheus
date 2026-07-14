@@ -49,6 +49,13 @@ class OrchestratorConfig:
     # Sans objet avec JepaWorldModel (latent non verbalisable → signal None). Off par défaut :
     # zéro surcoût, zéro changement de comportement.
     use_reducibility: bool = False
+    # --- Routeur de surprise APPRIS (Phase 4) ---
+    # None = règle Phase 1 (2 signaux, `SurpriseRouter`). Un chemin vers `router.json`
+    # (`morpheus train-router`) substitue le routeur appris : même contrat `route(signals)`,
+    # numpy pur, pas de torch. Le RÉGIME DE SONDAGE doit correspondre à celui de l'entraînement
+    # (`use_rag`/`use_memory`/…) — sinon les features non sondées sont épinglées à 0 et le logit
+    # dérive silencieusement ; le runner refuse le run (cf. RouterModel.regime_drift).
+    router_checkpoint: str | None = None
 
 
 @dataclass

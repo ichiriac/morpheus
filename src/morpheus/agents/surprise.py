@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
-from typing import Any, ClassVar, Iterable
+from typing import Any, ClassVar, Iterable, Protocol, runtime_checkable
 
 ERROR = "ERROR"
 NOVELTY = "NOVELTY"
@@ -121,6 +121,17 @@ class SurpriseSignals:
             self.reducibility if self.reducibility is not None else 0.0,
             0.0 if self.reducibility is None else 1.0,
         ]
+
+
+@runtime_checkable
+class Router(Protocol):
+    """Le contrat qu'un routeur doit remplir pour la boucle : signaux → ERREUR | NOUVEAUTÉ.
+
+    Deux implémentations interchangeables : `SurpriseRouter` (règle Phase 1, ci-dessous) et
+    `router.model.RouterModel` (appris, Phase 4). La boucle ne connaît que ce contrat.
+    """
+
+    def route(self, signals: SurpriseSignals) -> str: ...
 
 
 class SurpriseRouter:

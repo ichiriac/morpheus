@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
+import pytest
 
-from morpheus.agents.surprise import ERROR, NOVELTY, SurpriseSignals
+from morpheus.agents.surprise import ERROR, NOVELTY, Router, SurpriseRouter, SurpriseSignals
 from morpheus.router.features import signals_for_episode
 from morpheus.router.model import RouterModel
 from morpheus.router.train import (confusion, cross_validate, fit_logreg, standardize,
@@ -145,3 +147,127 @@ def test_train_router_end_to_end(tmp_path):
     assert train_router(str(ds), str(tmp_path / "out"), folds=4, epochs=300, seed=0) == 0
     saved = RouterModel.load(tmp_path / "out" / "router.json")
     assert saved.meta["n"] == 12 and len(saved.w) == len(SurpriseSignals.VECTOR_FIELDS)
+
+
+# --------------------------------------------------------------------------- #
+# branchement dans la boucle (Phase 4) : flag + garde de régime
+# --------------------------------------------------------------------------- #
+
+def _fitted(sigs, labels, **meta):
+    X = np.asarray([s.as_vector() for s in sigs])
+    y = np.asarray([1.0 if e else 0.0 for e in labels])
+    mu, sigma = standardize(X)
+    w, b = fit_logreg((X - mu) / sigma, y, epochs=500, lr=0.5, l2=1e-3)
+    return RouterModel(feature_names=SurpriseSignals.VECTOR_FIELDS, mu=mu, sigma=sigma,
+                       w=w, b=b, meta=meta)
+
+
+def test_build_router_defaults_to_phase1_rule():
+    from morpheus.config import OrchestratorConfig
+    from morpheus.eval.runner import build_router
+
+    router = build_router(OrchestratorConfig())          # pas de router_checkpoint
+    assert isinstance(router, SurpriseRouter)
+
+
+def test_build_router_loads_learned_and_honours_contract(tmp_path):
+    from morpheus.config import OrchestratorConfig
+    from morpheus.eval.runner import build_router
+
+    # entraîné SANS KB ni mémoire → régime = celui des défauts de OrchestratorConfig
+    sigs = [SurpriseSignals(delta=0.9, tool_error=(i % 2 == 0)) for i in range(20)]
+    path = tmp_path / "router.json"
+    _fitted(sigs, [s.tool_error for s in sigs]).save(path)
+
+    cfg = OrchestratorConfig(router_checkpoint=str(path))
+    router = build_router(cfg)
+    assert isinstance(router, RouterModel)
+    assert isinstance(router, Router)                    # contrat de la boucle rempli
+    assert router.route(SurpriseSignals(delta=0.9, tool_error=True)) == ERROR
+
+
+def test_build_router_skips_regime_guard_when_no_world_model(tmp_path):
+    """Baseline nue (--no-world-model) : route() n'est jamais appelé (predicted=None). Charger
+    un checkpoint hors-régime ne doit PAS échouer — sinon la mesure baseline-vs-JEPA-WM, qui
+    passe le MÊME YAML aux deux runs, casserait sur le run baseline pour un routeur inutilisé."""
+    from morpheus.config import OrchestratorConfig
+    from morpheus.eval.runner import build_router
+
+    # checkpoint volontairement hors-régime (dérive massive) — rejeté SI world-model actif
+    sigs = [SurpriseSignals(delta=0.5, tool_error=False, kb_top_score=(30.0 if i % 2 else 1.0),
+                            kb_hits=3) for i in range(20)]
+    path = tmp_path / "router.json"
+    _fitted(sigs, [i % 2 == 1 for i in range(20)]).save(path)
+
+    with pytest.raises(ValueError):                      # world-model on ⇒ garde active
+        build_router(OrchestratorConfig(router_checkpoint=str(path),
+                                        use_rag=False, use_world_model=True))
+    r = build_router(OrchestratorConfig(router_checkpoint=str(path),
+                                        use_rag=False, use_world_model=False))
+    assert isinstance(r, RouterModel)                    # baseline : chargé, inerte, pas de garde
+
+
+def test_probe_rate_reads_training_regime_from_checkpoint():
+    # sondé sur 100 % des exemples ⇒ mu de l'indicateur = 1.0 ; jamais sondé ⇒ 0.0
+    sigs = [SurpriseSignals(delta=0.5, tool_error=(i % 2 == 0), kb_top_score=3.0, kb_hits=2)
+            for i in range(10)]
+    m = _fitted(sigs, [s.tool_error for s in sigs])
+    assert m.probe_rate("kb_probed") == 1.0
+    assert m.probe_rate("reducibility_probed") == 0.0
+
+
+def test_regime_drift_rejects_run_when_gated_signal_not_probed_live(tmp_path):
+    """Un signal sondé au train mais pas en live est épinglé à 0 par as_vector() : le modèle
+    lit une valeur hors-distribution ⇒ dérive constante. Le runner doit refuser AVANT le run."""
+    from morpheus.config import OrchestratorConfig
+    from morpheus.eval.runner import build_router
+
+    # kb_top_score porte le signal ET est sondé partout au train
+    sigs = [SurpriseSignals(delta=0.5, tool_error=False, kb_top_score=(20.0 if i % 2 else 1.0),
+                            kb_hits=3) for i in range(20)]
+    m = _fitted(sigs, [i % 2 == 1 for i in range(20)])
+    drift, detail = m.regime_drift(use_rag=False, use_memory=False, use_world_model=False)
+    assert abs(drift) >= 1.0 and "kb_top_score" in detail
+
+    path = tmp_path / "router.json"
+    m.save(path)
+    cfg = OrchestratorConfig(router_checkpoint=str(path), use_rag=False)
+    with pytest.raises(ValueError, match="régime de sondage"):
+        build_router(cfg)
+
+    # régime rétabli (use_rag=True) ⇒ plus de dérive, le run passe
+    assert m.regime_drift(use_rag=True, use_memory=False, use_world_model=False)[0] == 0.0
+    assert isinstance(build_router(OrchestratorConfig(router_checkpoint=str(path),
+                                                      use_rag=True)), RouterModel)
+
+
+def test_signal_probed_live_but_never_at_train_is_inert_and_reported():
+    """direction : disponible dans la boucle (world-model on), jamais sondée au train ⇒
+    colonne constante, gradient nul, poids 0. Aucune dérive — mais le routeur est AVEUGLE."""
+    sigs = [SurpriseSignals(delta=0.5, tool_error=(i % 2 == 0)) for i in range(10)]
+    m = _fitted(sigs, [s.tool_error for s in sigs])
+    i = m.feature_names.index("direction")
+    assert m.w[i] == 0.0                                 # jamais appris
+    assert m.regime_drift(use_world_model=True)[0] == 0.0        # inerte
+    assert "direction" in m.unused_live_signals(use_world_model=True)
+
+
+def test_shipped_checkpoint_matches_its_training_regime():
+    """Garde-fou sur les artefacts VERSIONNÉS : le checkpoint livré a été entraîné avec KB,
+    mémoire ET direction sondées (dataset direction-sondé, build_router_dataset.py --checkpoint).
+    Les configs τ² laissent use_rag/use_memory à False ⇒ ce couple DOIT être rejeté, pas subi
+    silencieusement. Verrouille aussi la reproductibilité checkpoint↔dataset (même régime)."""
+    ckpt = Path("checkpoints/router/router.json")
+    if not ckpt.exists():
+        pytest.skip("checkpoint du routeur non présent")
+    m = RouterModel.load(ckpt)
+    assert m.probe_rate("kb_probed") == 1.0 and m.probe_rate("memory_probed") == 1.0
+    assert m.probe_rate("direction_probed") > 0.5        # entraîné AVEC direction (99/108)
+
+    # régime des configs τ² (use_rag/use_memory False) ⇒ dérive décisive ⇒ run refusé
+    off, _ = m.regime_drift(use_rag=False, use_memory=False, use_world_model=True)
+    assert off < -1.0                                    # dérive vers NOUVEAUTÉ, décisive
+    # régime d'entraînement retrouvé ⇒ aucune dérive, aucun signal aveugle
+    on, _ = m.regime_drift(use_rag=True, use_memory=True, use_world_model=True)
+    assert on == 0.0
+    assert m.unused_live_signals(use_rag=True, use_memory=True, use_world_model=True) == []

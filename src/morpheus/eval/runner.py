@@ -8,14 +8,69 @@ from pathlib import Path
 
 from ..agents.knowledge import KnowledgeBase, locate_policy
 from ..agents.policy import Policy
-from ..agents.surprise import SurpriseRouter
+from ..agents.surprise import Router, SurpriseRouter
 from ..agents.world_model import WorldModel
-from ..config import Config
+from ..config import Config, OrchestratorConfig
 from ..envs import build_env_factory
 from ..llm import build_llm
 from ..orchestrator.loop import Orchestrator
 from .metrics import SuccessVsTurns, summarize
 from .report import _now_iso, write_reports
+
+
+def build_router(cfg: OrchestratorConfig) -> Router:
+    """Règle Phase 1 par défaut ; routeur APPRIS si `router_checkpoint` (Phase 4).
+
+    Refuse un régime de sondage incompatible avec l'entraînement : `as_vector()` épingle à 0
+    les signaux non sondés, ce que le modèle lit comme une valeur RÉELLE hors distribution ⇒
+    dérive constante du logit. Échouer ICI (avant un run GPU de plusieurs heures) plutôt que
+    de produire une mesure biaisée et non comparable.
+    """
+    if not cfg.router_checkpoint:
+        return SurpriseRouter()
+
+    from ..router.model import MAX_REGIME_DRIFT, RouterModel   # numpy : extra [jepa]/[dev]
+
+    model = RouterModel.load(cfg.router_checkpoint)
+    if not cfg.use_world_model:
+        # Baseline nue : pas de lookahead ⇒ `predicted` reste None ⇒ la boucle n'appelle JAMAIS
+        # route(). Le routeur est INERTE : juger son régime n'aurait aucun sens (`direction`
+        # n'est pas sondée *par construction*, ce n'est pas un désaccord). On charge quand même
+        # — un chemin de checkpoint erroné doit échouer ici — mais sans garde ni bruit. Sans ce
+        # court-circuit, `--no-world-model` sur une config PORTANT un router_checkpoint (le cas
+        # de la mesure baseline-vs-JEPA-WM, même YAML) échouerait pour un routeur non utilisé.
+        print(f"routeur : APPRIS chargé mais INERTE ({cfg.router_checkpoint} — "
+              f"--no-world-model : aucune surprise routée)")
+        return model
+
+    live = {"use_rag": cfg.use_rag, "use_memory": cfg.use_memory,
+            "use_reducibility": cfg.use_reducibility, "use_world_model": cfg.use_world_model}
+    drift, detail = model.regime_drift(**live)
+
+    if abs(drift) >= MAX_REGIME_DRIFT:
+        toward = "ERREUR" if drift > 0 else "NOUVEAUTÉ"
+        per_feat = ", ".join(f"{k} {v:+.2f}" for k, v in sorted(detail.items()))
+        raise ValueError(
+            f"routeur appris {cfg.router_checkpoint!r} : régime de sondage ≠ entraînement.\n"
+            f"  Dérive systématique du logit : {drift:+.2f} vers {toward}, à CHAQUE décision.\n"
+            f"  Features épinglées à 0 mais sondées à l'entraînement : {per_feat}\n"
+            f"  ⇒ activez les drapeaux correspondants (orchestrator.use_rag / use_memory / …) "
+            f"pour retrouver le régime d'entraînement, OU ré-entraînez le routeur sur ce "
+            f"régime (scripts/build_router_dataset.py --no-kb / --no-memory)."
+        )
+
+    blind = model.unused_live_signals(**live)
+    if blind:
+        print(f"  ⚠️  routeur appris : signaux sondés en live mais IGNORÉS (poids 0 — jamais "
+              f"sondés à l'entraînement) : {', '.join(blind)}. Re-générer le dataset avec "
+              f"--checkpoint pour que le routeur les exploite.")
+    if drift:
+        print(f"  ℹ️  routeur appris : dérive de régime {drift:+.2f} logit "
+              f"(< {MAX_REGIME_DRIFT}, sous le seuil de décision).")
+    ba = model.meta.get("cv", {}).get("balanced_accuracy")
+    print(f"routeur : APPRIS ({cfg.router_checkpoint}"
+          + (f", balanced_acc CV {ba}" if ba is not None else "") + ")")
+    return model
 
 
 def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
@@ -39,7 +94,8 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
         )
         kb = KnowledgeBase.from_policy_file(policy_path, cfg.eval.domain)
 
-    orch = Orchestrator(policy, world_model, cfg.orchestrator, SurpriseRouter(), kb=kb)
+    orch = Orchestrator(policy, world_model, cfg.orchestrator,
+                        build_router(cfg.orchestrator), kb=kb)
 
     make_env, n_tasks = build_env_factory(cfg.eval)
     metric = SuccessVsTurns()
