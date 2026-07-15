@@ -77,8 +77,8 @@ def test_stub_answers_explain_gap():
 # --------------------------------------------------------------------------- #
 
 class _TwoCand(Policy):
-    """2 candidats fixes (→ branche world-model active) — recette de test_memory.py :
-    la Policy+stub standard ne produit qu'un candidat, donc jamais de lookahead."""
+    """2 candidats fixes (→ branche world-model active) — recette de test_memory.py : fixer
+    les candidats rend ces tests de signaux indépendants de l'heuristique de la politique."""
 
     def propose(self, state, tools, system_context=None, transcript=None, facts=None, route=None):
         return [Action(tool=tools[0]), Action(tool=tools[min(1, len(tools) - 1)])]

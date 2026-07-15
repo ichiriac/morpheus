@@ -130,3 +130,49 @@ def test_check_llm_runs_with_stub():
 
     cfg = Config()  # stub + mock par défaut
     assert check_llm(cfg) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Contrat politique ⇄ stub : le stub doit RELIRE le prompt que la politique écrit.
+# Régression déjà vécue : la politique émettait `[ÉTAT COURANT]`, le stub lisait `[STATE]`.
+# L'état lu était vide, donc UNE seule action, donc `len(candidates) > 1` faux dans loop.py,
+# donc AUCUN lookahead — silencieusement, sur toute config à politique stub. Rien n'échouait :
+# ces deux tests sont là pour que ça échoue.
+# --------------------------------------------------------------------------- #
+
+def test_stub_reads_state_written_by_policy():
+    """La balise d'état de `Policy.build_prompt` est bien celle que le stub relit."""
+    from morpheus.llm.stub import _extract
+    from morpheus import prompt_tags as T
+    from morpheus.orchestrator.types import Observation, State
+
+    pol = Policy(build_llm(LLMConfig(kind="stub")), k=3)
+    state = State(goal="but", observation=Observation(text="Prochaine étape attendue : lookup_order."))
+    prompt = pol.build_prompt(state, ["authenticate_user", "lookup_order"])
+    assert _extract(prompt, T.POLICY_STATE) == "Prochaine étape attendue : lookup_order."
+
+
+def test_stub_policy_proposes_k_candidates_from_state_hint():
+    """L'indice d'état étant lu, le stub propose K candidats (l'attendu d'abord) — sans quoi
+    le lookahead de loop.py, gardé par `len(candidates) > 1`, ne s'exécuterait jamais."""
+    from morpheus.orchestrator.types import Observation, State
+
+    tools = ["authenticate_user", "lookup_order", "check_refund_policy"]
+    pol = Policy(build_llm(LLMConfig(kind="stub")), k=3)
+    state = State(goal="but", observation=Observation(text="Prochaine étape attendue : lookup_order."))
+    actions = pol.propose(state, tools)
+    assert len(actions) > 1, "un seul candidat ⇒ loop.py sauterait le lookahead"
+    assert actions[0].tool == "lookup_order", "l'étape attendue doit être proposée en premier"
+
+
+def test_stub_policy_actually_exercises_lookahead_end_to_end():
+    """Intégration : avec la Policy+stub STANDARD (celle des configs), la boucle doit vraiment
+    faire du MPC — >1 candidats, ŝ' prédit, divergence calculée. C'est ce qu'aucun test
+    n'attrapait : les tests du chemin MPC injectaient des politiques factices multi-candidats,
+    ce qui masquait le fait que la vraie Policy+stub tournait à K=1."""
+    result = _orch(use_wm=True).run(make_mock_env(task_index=0, seed=0, buckets=[4, 8, 12]))
+    fired = [s for s in result.trace if len(s.candidates) > 1]
+    assert fired, "aucun tour à >1 candidats : la Policy+stub n'exerce jamais le lookahead"
+    for s in fired:
+        assert s.predicted_state is not None      # le world-model a bien prédit
+        assert 0.0 <= s.divergence <= 1.0
