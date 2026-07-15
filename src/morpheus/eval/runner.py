@@ -96,6 +96,12 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
 
     orch = Orchestrator(policy, world_model, cfg.orchestrator,
                         build_router(cfg.orchestrator), kb=kb)
+    # δ n'a pas la même échelle selon le world-model ⇒ le seuil lui appartient. On ANNONCE la
+    # valeur résolue et son origine : un run doit dire sous quel régime il a tourné.
+    origin = ("config" if cfg.orchestrator.surprise_threshold is not None
+              else f"défaut de {type(world_model).__name__}")
+    print(f"world-model : {type(world_model).__name__} · seuil de surprise "
+          f"{orch.surprise_threshold:.2f} ({origin})")
 
     make_env, n_tasks = build_env_factory(cfg.eval)
     metric = SuccessVsTurns()
@@ -143,8 +149,13 @@ def run_experiment(cfg: Config, out_dir: str | None = None) -> SuccessVsTurns:
             f.flush()
 
     (out / "summary.txt").write_text(summarize(metric), encoding="utf-8")
+    cfg_dump = cfg.to_dict()
+    # `surprise_threshold: null` signifie « le world-model décide » : sans la valeur RÉSOLUE, le
+    # run ne dirait plus sous quel seuil il a tourné. On la fige à côté (lecture humaine ; rien
+    # ne relit ce fichier programmatiquement).
+    cfg_dump["orchestrator"]["surprise_threshold_resolved"] = orch.surprise_threshold
     (out / "config.json").write_text(
-        json.dumps(cfg.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(cfg_dump, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     # Résultats mis de côté en markdown : rapport par-run + journal cumulatif BENCHMARKS.md.
     write_reports(cfg, metric, out, started_at)

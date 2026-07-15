@@ -37,6 +37,13 @@ _SYS_EXPLAIN = (
 class WorldModel:
     """LLM-as-world-model (Phase 1). Sert au lookahead MPC et à la prédiction pour δ."""
 
+    # Seuil de surprise PROPRE à ce world-model : δ est ici un Jaccard sur des tokens de texte,
+    # dont l'échelle [0,1] est réellement parcourue (deux textes sans token commun → 1.0). 0.5 =
+    # « la moitié du vocabulaire prédit est faux » : un seuil Jaccard sensé. C'est la valeur
+    # historique de Phase 1 — les 109 annotations et le routeur appris en dépendent : NE PAS la
+    # bouger sans rejouer la comparabilité. Chaque WM porte la sienne (cf. JepaWorldModel).
+    surprise_threshold: float = 0.5
+
     def __init__(self, llm: LLMClient) -> None:
         self.llm = llm
 

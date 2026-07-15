@@ -45,6 +45,15 @@ class Orchestrator:
         self.cfg = cfg
         self.router = router or SurpriseRouter()
         self.kb = kb  # référentiel de vérité, interrogé seulement sur surprise (RAG gated)
+        # Le seuil de surprise appartient au WORLD-MODEL, pas à l'orchestrateur : δ change de
+        # grandeur avec l'implémentation (Jaccard texte vs (1−cos)/2 latent), donc un seuil porté
+        # ici se transmettrait d'un WM à l'autre en gardant une calibration qui n'est plus la
+        # bonne. La config PRIME si elle en fixe un (échappatoire explicite) ; sinon on demande au
+        # WM ; le repli 0.5 couvre les world-models tiers/doubles de test qui n'en déclarent pas.
+        self.surprise_threshold: float = (
+            cfg.surprise_threshold if cfg.surprise_threshold is not None
+            else float(getattr(world_model, "surprise_threshold", 0.5))
+        )
 
     def _rollout_all(self, state: State, candidates: list[Action],
                      tools: list[str]) -> list[tuple[float, str]]:
@@ -126,7 +135,7 @@ class Orchestrator:
             route = None
             facts: list[str] = []
             signals: SurpriseSignals | None = None
-            if predicted is not None and delta > self.cfg.surprise_threshold:
+            if predicted is not None and delta > self.surprise_threshold:
                 score_after = self.wm.score_to_goal(state.goal, step.observation.text)
                 # Récupération déclenchée UNIQUEMENT par la surprise (économie du gated) : on
                 # interroge, avec l'état vrai + l'action qui a surpris, la KB statique (policy) ET

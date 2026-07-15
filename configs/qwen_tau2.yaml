@@ -37,7 +37,7 @@ orchestrator:
   k_candidates: 4
   horizon: 3
   max_turns: 16
-  surprise_threshold: 0.5
+  # surprise_threshold : non fixé ⇒ WorldModel (Jaccard) = 0.5, valeur historique Phase 1.
   use_world_model: true
   concurrency: 8
 

@@ -17,7 +17,9 @@ orchestrator:
   k_candidates: 3
   horizon: 1            # JepaWorldModel v0 : lookahead latent à 1 pas
   max_turns: 8
-  surprise_threshold: 0.5
+  # surprise_threshold : non fixé ⇒ JepaWorldModel = 0.20. Le 0.5 hérité ici était une
+  # calibration JACCARD appliquée à un δ COSINUS LATENT, hors de l'échelle atteignable
+  # (δ_max mesuré 0.697, δ_hasard ≈0.37) ⇒ routeur quasi muet. Cf. probe_predictor_form_vs_content.py.
   use_world_model: true
   concurrency: 1
 

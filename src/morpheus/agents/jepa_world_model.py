@@ -38,6 +38,20 @@ def _cos(a: np.ndarray, b: np.ndarray) -> float:
 class JepaWorldModel:
     """Prédicteur JEPA chargé depuis `jepa.pt`, exposé via le contrat WorldModel."""
 
+    # Seuil de surprise PROPRE à ce world-model. δ vaut ici (1−cos)/2 dans le latent appris, PAS
+    # un Jaccard : l'échelle utile n'est pas [0,1]. Un latent entraîné au cosinus avec VICReg ne
+    # produit jamais de vecteurs anti-alignés — deux états sans rapport valent cos≈0.26, soit
+    # δ≈0.37, et non δ=1. Hériter le 0.5 de `WorldModel` (calibration Jaccard) exigeait donc une
+    # prédiction PLUS FAUSSE qu'un tirage au hasard : le routeur ne se déclenchait quasi jamais.
+    # Mesuré sur held-out (`scripts/probe_predictor_form_vs_content.py`, sonde F5) : δ≈0.117 quand
+    # l'observation est correcte, δ≈0.368 sur une vraie discordance, δ_max observé 0.697. δ sépare
+    # les deux avec AUC 0.948 — le signal est bon, seul le seuil était hors échelle. 0.20 = optimum
+    # de Youden sur cette mesure (87.2% de détection, 13.8% de fausses alarmes).
+    # ⚠️ Ne détecte QUE « le monde a contredit la prédiction ». Un `coherent_but_wrong` (action
+    # plausible mais fausse, dont l'environnement renvoie le payload attendu) laisse δ≈0.117 :
+    # aucun seuil ne le rattrape — il faut un coût qui juge l'action, pas la prédiction.
+    surprise_threshold: float = 0.20
+
     def __init__(self, checkpoint: str | Path, device: str = "auto") -> None:
         import torch  # import paresseux (n'impacte pas les tests LLM/stub)
 

@@ -31,7 +31,14 @@ class OrchestratorConfig:
     k_candidates: int = 4                 # nb d'actions candidates proposées par tour (K)
     horizon: int = 3                      # profondeur du lookahead latent/texte (H)
     max_turns: int = 12                   # T_max
-    surprise_threshold: float = 0.5       # seuil de déclenchement du routeur de surprise
+    # Seuil de déclenchement du routeur de surprise. `None` (défaut) = **le world-model décide**
+    # (`WorldModel.surprise_threshold`) : δ n'est PAS la même grandeur selon le WM — Jaccard sur
+    # du texte pour le LLM (échelle [0,1] réellement parcourue), (1−cos)/2 dans un latent pour le
+    # JEPA (deux vecteurs sans rapport valent ≈0.26 ⇒ δ plafonne vers ≈0.37). Un seuil unique
+    # porté par l'orchestrateur se transmet d'un WM à l'autre et se retrouve hors de l'échelle
+    # atteignable — c'est ce qui rendait le routeur JEPA muet (0.5 exigeait « plus faux qu'un
+    # tirage au hasard »). Une valeur explicite ici reste possible : elle PRIME sur le world-model.
+    surprise_threshold: float | None = None
     use_world_model: bool = True          # False = baseline ReAct nue (Phase 0)
     # nb de rollouts LLM concurrents (les K rollouts sont indépendants). >1 => vLLM batche
     # les requêtes en vol au lieu de les traiter en série. 1 = séquentiel (déterministe/CI).
