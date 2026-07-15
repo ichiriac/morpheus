@@ -86,10 +86,24 @@ class EvalConfig:
     tau2_user_llm: str | None = None      # modèle litellm du user-sim (ex. openai/Qwen/Qwen3-32B-AWQ)
     tau2_user_base_url: str | None = None # base_url du user-sim (ex. http://localhost:8000/v1)
     tau2_user_api_key_env: str | None = None
-    # Juge LLM des NL-assertions (calcul du reward retail/airline : 112/114 tâches retail ont
-    # NL_ASSERTION dans leur reward_basis → sans ce juge, reward = db × 0 = 0). Défaut τ² =
-    # gpt-4.1 (clé OpenAI). Renseigner pour le pointer sur le vLLM local (ex. mêmes valeurs que
-    # user-sim). ⚠️ Qwen jugeant Qwen est méthodologiquement faible : mesure indicative.
+    # Juge LLM des NL-assertions. Défaut τ² = gpt-4.1 (clé OpenAI) → 404 sur un pod sans clé.
+    # Renseigner pour le pointer sur le vLLM local (ex. mêmes valeurs que user-sim).
+    #
+    # ⚠️ CORRIGÉ 2026-07-15 — ce commentaire portait « 112/114 tâches retail ont NL_ASSERTION dans
+    # reward_basis → sans ce juge, reward = db × 0 = 0 ». L'inférence est FAUSSE et elle a essaimé
+    # dans 4 autres fichiers avant d'atteindre un commit. Ce qui déclenche le juge n'est PAS
+    # `reward_basis` mais `nl_assertions` NON VIDE (tau2/evaluator/evaluator_nl_assertions.py) :
+    #   · `NL_ASSERTION` dans reward_basis .... 112/114  ← ne déclenche rien
+    #   · `nl_assertions` non vide ............  40/114  ← seules celles-ci appellent le juge
+    #   · `nl_assertions` vide ................  74/114  ← `if not nl_assertions: return 1.0`,
+    #     sortie anticipée AVANT tout appel LLM ⇒ NL=1.0 vacu, aucun 404 possible, reward = db.
+    # Donc sans juge : 40 tâches cassées, 74 tâches parfaitement mesurées. Pas « par construction ».
+    #
+    # ⚠️ Qwen jugeant Qwen est faible ET, mesuré : le juge ne discrimine pas. Seul appel réel du
+    # smoke `retail_attrib` (BENCHMARKS.md) : assertion « there are 10 t-shirt options available »
+    # → verdict MET alors que l'agent en a listé 9 sans jamais dire « 10 ». Faux positif 1/1.
+    # ⇒ Lire le `DB` seul. Les 74 tâches à nl_assertions vide forment un banc PROPRE (reward = db,
+    # protocole τ² officiel, aucun juge dans la boucle).
     tau2_judge_llm: str | None = None     # ex. openai/Qwen/Qwen3-32B-AWQ
     tau2_judge_base_url: str | None = None
     tau2_judge_api_key_env: str | None = None

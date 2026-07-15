@@ -59,8 +59,9 @@ eval:
   tau2_user_llm: openai/Qwen/Qwen3-32B-AWQ
   tau2_user_base_url: http://localhost:8000/v1
   tau2_user_api_key_env: null
-  # Juge NL-assertions pointé sur le vLLM local (sinon reward retail = 0, gpt-4.1 par défaut →
-  # 404). 112/114 tâches retail ont NL_ASSERTION dans reward_basis → scoring fiable requis.
+  # Juge NL-assertions pointé sur le vLLM local (sinon défaut gpt-4.1 → 404). Ne concerne que les
+  # 40/114 tâches retail à `nl_assertions` non vide ; les 74 autres rendent NL=1.0 sans appel LLM.
+  # ⚠️ MESURÉ : ce juge ne discrimine pas (faux positif 1/1, cf. config.py::tau2_judge_llm).
   tau2_judge_llm: openai/Qwen/Qwen3-32B-AWQ
   tau2_judge_base_url: http://localhost:8000/v1
   tau2_judge_api_key_env: null

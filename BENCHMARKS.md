@@ -94,6 +94,50 @@ Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs
 >
 > ⚠️ Le prompt de la politique a CHANGÉ (cap 600 → 2500) : les runs d'avant le 2026-07-15 ne sont
 > pas comparables à ceux d'après.
+>
+> #### Taxonomie des 3 échecs DB — le cahier des charges de la fonction de coût
+>
+> Chaque tâche retail n'a **qu'UNE écriture DB** (tout le reste est de la lecture) : le `DB` se joue
+> sur un seul appel. Diff entre l'écriture réelle et l'écriture de référence, run `retail_cap2500` :
+>
+> | Tâche | Famille | Écriture attendue vs réelle | `tool_error` |
+> |---|---|---|---|
+> | 0 | **C1 — ancrage FIN** | bonne commande, bons `item_ids`, bon paiement ; `new_item_ids` = `['2299424241','7747408585']` au lieu de `['7706410293','7747408585']` — **1 variante sur 2** | **False** |
+> | 1 | **A — planification** | `exchange_delivered_order_items` **jamais tentée** (bloqué en collecte, 10 tours) | — |
+> | 2 | **C2 — `coherent_but_wrong`** | attendu `return_delivered_order_items(#W2378156, [3 items])` ; réel = 2 écritures ABOUTIES sur `#W4776164` et `#W6679257` — bien formées, **mauvaises entités** | **False** |
+>
+> **La propriété commune, et c'est elle qui compte : AUCUNE de ces écritures n'erre.** Donc :
+> - `tool_error` (le signal le plus fort du routeur) est **aveugle** aux trois ;
+> - `divergence` est **aveugle** : le world-model prédit correctement le payload d'une action fausse
+>   mais bien formée — il n'y a pas de surprise à détecter (cf. probe_predictor_form_vs_content, F5) ;
+> - `score_to_goal(goal, state_text)` est **structurellement incapable** : après une écriture fausse
+>   mais bien formée, le texte d'état EST une confirmation de succès plausible. Et le but est une
+>   constante (1 valeur / 265 épisodes) ⇒ `cos(état, but)` ne peut pas encoder « quelle variante
+>   l'utilisateur voulait ».
+>
+> ⇒ **Ce que `P(succès | état)` devra voir**, dérivé de ces 3 cas : (1) discriminer à la granularité
+> d'UN argument (`7706410293` vs `2299424241` — deux variantes valides du même produit) ; (2)
+> discriminer l'entité CIBLE (bon outil, mauvaise commande) ; (3) voir « l'écriture n'a pas eu lieu
+> et les tours s'épuisent ». Les points 1 et 2 exigent de lire l'**ACTION**, pas seulement l'état.
+> Ça recoupe la sonde C du 2026-07-15 : dispersion intra-état des scores = 0.055 — le MPC actuel
+> n'a rien pour départager deux candidats qui ne diffèrent que par un identifiant de variante.
+>
+> #### Protocole de bench : les 74 tâches vacues, biais mesuré
+>
+> Sur les 74 tâches à `nl_assertions` vide, le reward officiel τ² **est** le `db` : aucun juge dans
+> la boucle, aucune distorsion de protocole. Test de biais de sélection (74 vacues vs 40 jugées,
+> AUC de Mann-Whitney) :
+>
+> | | 74 vacues | 40 jugées | AUC | |
+> |---|---|---|---|---|
+> | actions de référence | 4.72 | 5.03 | 0.470 | pas de biais |
+> | écritures DB | 1.54 | 1.55 | 0.401 | pas de biais |
+> | longueur consigne utilisateur | 533 | 643 | **0.339** | **biais réel** (z≈−2.8, p≈0.005) |
+>
+> ⇒ Les tâches jugées ont des consignes utilisateur **21% plus longues** — plus d'info détenue par
+> l'utilisateur, donc plus de dialogue à extraire. Le banc des 74 **sous-échantillonne le dialogue** :
+> biais CONNU et RAPPORTÉ, pas un bloqueur. Les 40 jugées restent une piste secondaire, flaggée
+> « juge non validé », jusqu'à ce qu'un juge recale un imposteur.
 
 > **Juge CONSTANT** : à partir du 2026-07-15, tous les bras d'une même comparaison (baseline / WM /
 > Sonnet 4.6) doivent être scorés par le MÊME juge — le Qwen local. Qwen-juge-Qwen est faible dans

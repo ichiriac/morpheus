@@ -10,10 +10,14 @@
 # l'action pour router le TEXTE vers le simulateur d'utilisateur (`tau2_adapter.py:109`).
 # Mesuré, pas supposé : 44 des 108 tours annotés (41%) sont des `respond_to_user`
 # (`data/annotations/tau2_error_novelty.jsonl`) — le dialogue marche.
-# ⚠️ La vraie limite des runs retail du 13/07 était AILLEURS : le juge NL n'a été câblé qu'à
-# 19:43 (commit 1158aa0). Avant ça le défaut τ² était `gpt-4.1` → 404 → composante NL = 0, et
-# 112/114 tâches retail ont une NL_ASSERTION dans `reward_basis` ⇒ reward = db × 0 = 0 PAR
-# CONSTRUCTION, quoi que l'agent fasse. Cf. BENCHMARKS.md (lignes retail marquées ⚠️ pré-juge).
+# ⚠️ Les runs retail du 13/07 sont PARTIELLEMENT cassés (le juge NL n'a été câblé qu'à 19:43,
+# commit 1158aa0 ; avant, défaut τ² = `gpt-4.1` → 404). PARTIELLEMENT, pas « par construction » :
+# une 1re version de cette note (2026-07-15, matin) affirmait « 112/114 tâches ont NL_ASSERTION
+# dans reward_basis ⇒ reward = db × 0 = 0 PAR CONSTRUCTION ». FAUX — voir config.py, champ
+# `tau2_judge_llm`. Le juge n'est appelé que si `nl_assertions` est NON VIDE : 40/114. Les 74
+# autres sortent en `return 1.0` avant tout appel LLM ⇒ jamais de 404, reward = db.
+# Sur les 8 tâches des baselines du 13/07 : 5/8 vacues ⇒ leur 0% était un VRAI DB=0, correctement
+# mesuré. Seules 2, 3, 4 ont pris le 404. Cf. BENCHMARKS.md (bloc ⚠️ des lignes retail).
 #
 # Prérequis : serveur vLLM Qwen up (scripts/serve_qwen_vllm.sh).
 
@@ -56,8 +60,10 @@ eval:
   tau2_user_llm: openai/Qwen/Qwen3-32B-AWQ
   tau2_user_base_url: http://localhost:8000/v1
   tau2_user_api_key_env: null
-  # Juge des NL-assertions (reward retail) sur le MÊME vLLM local — sinon défaut gpt-4.1 → 404,
-  # reward = 0 pour 112/114 tâches. ⚠️ Qwen jugeant Qwen : mesure indicative, pas de référence.
+  # Juge des NL-assertions sur le MÊME vLLM local — sinon défaut gpt-4.1 → 404 sur les 40/114
+  # tâches retail à `nl_assertions` non vide (les 74 autres sortent en NL=1.0 sans appel LLM).
+  # ⚠️ MESURÉ : ce juge ne discrimine pas (faux positif 1/1, cf. config.py::tau2_judge_llm).
+  # Lire le `DB` seul ; les 74 tâches vacues sont un banc propre sans juge.
   tau2_judge_llm: openai/Qwen/Qwen3-32B-AWQ
   tau2_judge_base_url: http://localhost:8000/v1
   tau2_judge_api_key_env: null

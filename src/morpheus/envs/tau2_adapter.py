@@ -279,8 +279,12 @@ def _num_agent_actions(task) -> int:
 
 def _wire_nl_judge(cfg: EvalConfig) -> None:
     """Pointe le juge LLM des NL-assertions vers l'endpoint `tau2_judge_*`. Sans ça il reste sur
-    le défaut τ² (`gpt-4.1`, clé OpenAI) → 404/crash sur un vLLM local, et le reward retail tombe
-    à 0 (112/114 tâches retail ont NL_ASSERTION dans leur reward_basis ; reward = db × nl).
+    le défaut τ² (`gpt-4.1`, clé OpenAI) → 404/crash sur un vLLM local.
+
+    ⚠️ Portée CORRIGÉE le 2026-07-15 : ce docstring disait « le reward retail tombe à 0 (112/114
+    tâches ont NL_ASSERTION dans leur reward_basis) ». Le juge n'est appelé que si `nl_assertions`
+    est NON VIDE — 40/114. Les 74 autres sortent en `return 1.0` avant tout appel LLM ⇒ pas de 404,
+    reward = db. Sans ce câblage : 40 tâches cassées, 74 intactes. Détail : config.py::tau2_judge_llm.
 
     Le module `evaluator_nl_assertions` importe `DEFAULT_LLM_NL_ASSERTIONS` AU CHARGEMENT et
     l'utilise par son nom local : patcher `tau2.config` serait sans effet, on patche donc le nom
