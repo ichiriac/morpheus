@@ -28,7 +28,21 @@ _SYS = (
 # Fenêtre de mémoire de la politique (scratchpad ReAct) : nb de couples action→résultat gardés
 # et longueur max de chaque résultat (borne le prompt tout en gardant l'info utile).
 _TRANSCRIPT_TURNS = 8
-_TRANSCRIPT_CHARS = 600
+# 2500 = premier palier au-dessus du p95 MESURÉ des résultats d'outils τ²-retail (p95 = 2164 sur
+# 1357 payloads : data/tau2_replay/retail.jsonl + trace du smoke `retail_attrib`). Couvre 96.2%
+# des résultats ; coût ≈ 8×2500/4 ≈ 5k tokens, soit 15% d'un contexte 32k — négligeable.
+#
+# Le 600 précédent ne couvrait que 38.6% : il TRONQUAIT 62.6% des résultats (459 car. perdus en
+# moyenne). Ce n'était pas un cas limite mais le régime normal. Défaut observé dans `retail_attrib`
+# (BENCHMARKS.md) : `list_all_product_types` rend la table nom→ID en 1478 car. ; l'entrée utile
+# ("Mechanical Keyboard": "1656367028") est à l'offset 812, donc ÉVINCÉE du scratchpad. L'agent
+# rappelait ensuite `get_product_details(product_id='Mechanical Keyboard')` en boucle, sans plus
+# aucun moyen de retrouver l'ID : le rattrapage devenait structurellement impossible.
+# ⚠️ Ne PAS confondre avec `_TRANSCRIPT_TURNS`, hors de cause ici (t10→t13 = 3 tours, cap à 8).
+# ⚠️ Ce cap ne s'applique qu'au RENDU du prompt : `transcript` garde les textes entiers, donc le
+# signal `familiarity` du routeur (loop.py) n'est pas affecté. En revanche le prompt de la
+# politique CHANGE ⇒ les runs d'avant 2026-07-15 ne sont pas comparables à ceux d'après.
+_TRANSCRIPT_CHARS = 2500
 
 
 class Policy:

@@ -2,22 +2,33 @@
 
 Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs nombre de tours** ; la thèse veut voir la courbe *world-model* diverger de la baseline à 8+ tours.
 
-> ### ⚠️ Les six lignes `tau2/retail` du 2026-07-13 sont ININTERPRÉTABLES — ne pas s'en servir
+> ### ⚠️ Les six lignes `tau2/retail` du 2026-07-13 : PARTIELLEMENT cassées, pas toutes
 >
-> Établi le 2026-07-15. Leur `0.0%` ne mesure ni Qwen, ni le dialogue, ni la boucle : il mesure un
-> **404**. Le juge des NL-assertions n'a été câblé sur le vLLM local qu'à **19:43** (commit
-> `1158aa0`) ; avant, le défaut τ² était `gpt-4.1`, sans clé ⇒ 404 ⇒ composante NL = 0. Or
-> **112/114 tâches retail** ont une `NL_ASSERTION` dans leur `reward_basis` ⇒ `reward = db × 0 = 0`
-> **par construction**, quoi que l'agent ait fait. Les six runs sont tous ANTÉRIEURS à 19:43.
+> **CORRIGÉ le 2026-07-15 (2e passe).** Une 1re version de ce bloc affirmait que ces zéros
+> « mesuraient un 404 » et que `reward = db × 0 = 0` **par construction**. C'est FAUX pour la
+> majorité des tâches, et l'erreur venait de faire porter au chiffre `112/114` une charge qu'il ne
+> supporte pas. Mesuré depuis, dans `tau2.evaluator.evaluator_nl_assertions` :
 >
-> Recoupement : le **seul** signal non nul du 13/07 est `tau2/telecom` en mode **solo** (33% / 50% /
-> 100%) — précisément le seul mode dont le reward NE passe PAS par le juge NL.
+> - `112/114` = tâches ayant `NL_ASSERTION` dans **`reward_basis`**. Ce n'est PAS ce qui déclenche
+>   le juge.
+> - Ce qui le déclenche, c'est **`nl_assertions` non vide** : seulement **40/114**. Les **74 autres**
+>   prennent une sortie anticipée (`if not nl_assertions: return reward=1.0`) — `NL=1.0` rendu
+>   **sans aucun appel LLM**, donc **sans 404 possible**, hier comme aujourd'hui. Vérité vacue :
+>   rien à violer ⇒ tout est satisfait.
 >
-> Ce n'est PAS la « limite d'équité » qu'invoquaient `qwen_tau2.yaml` et `qwen_tau2_jepawm.yaml` :
-> cet avertissement-là était lui-même périmé (`respond_to_user` livré le 13/07 à 12:26, commit
-> `7d6349d`, soit AVANT tous ces runs ; 44 des 108 tours annotés (41%) sont des `respond_to_user`).
-> Les lignes sont conservées telles quelles — on n'efface pas un journal — mais elles ne disent rien
-> sur la performance. **On ne sait toujours pas ce que vaut Qwen nu sur retail.**
+> Conséquence sur les 8 tâches des deux baselines : **5/8 sont vacues** (0, 1, 5, 6, 7) — leur
+> reward valait `db × 1 = db`, donc leur `0%` signifiait **déjà `DB=0`, un vrai échec de Qwen,
+> correctement mesuré**. Seules les tâches **2, 3, 4** appelaient le juge et ont pris le 404.
+> Ces runs sont donc **hétérogènes** (5 mesures valides + 3 cassées), pas universellement nuls —
+> c'est en tant qu'AGRÉGAT qu'ils restent ininterprétables.
+>
+> Ce qui tient de la 1re version : le juge n'a bien été câblé qu'à **19:43** (`1158aa0`), APRÈS tous
+> ces runs ; et la « limite d'équité » invoquée par `qwen_tau2.yaml` / `qwen_tau2_jepawm.yaml` était
+> bien un fantôme (`respond_to_user` livré à 12:26, `7d6349d`, AVANT ces runs ; 44 des 108 tours
+> annotés (41%) en sont). Les lignes sont conservées — on n'efface pas un journal.
+>
+> Leçon : « mesure, ne crois pas les commentaires » vaut aussi pour ses propres conclusions. Le
+> `112/114` a été recopié de la doc sans vérifier ce qu'il comptait.
 
 | Date (UTC) | Run | Env / domaine | Mode | Variante | Modèle | K/H/Tmax | Tâches | Réussite | Courbe (tours:réussite) |
 |---|---|---|---|---|---|---|---|---|---|
@@ -33,6 +44,7 @@ Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs
 | 2026-07-13 17:38 | `qwen_tau2_telecom_solo_v2` | tau2/telecom | solo | world-model | `Qwen/Qwen3-32B-AWQ` | 2/1/6 | 3 | 100.0% | 0:100%(n3) |
 | 2026-07-13 18:08 | `jepa_wm_tau2` | mock/retail | — | world-model | `stub` | 3/1/8 | 3 | 0.0% | 4:0%(n1) · 8:0%(n1) · 12:0%(n1) |
 | 2026-07-15 20:26 | `retail_attrib` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 3 | 0.0% — **DB=0 / NL=1.0**, ATTRIBUÉ ✅ | 5:0%(n2) · 11:0%(n1) |
+| 2026-07-15 20:44 | `retail_cap2500` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 3 | 0.0% | 5:0%(n2) · 11:0%(n1) |
 <!-- BENCH:APPEND -->
 
 > ### `retail_attrib` — le premier 0% ATTRIBUABLE (smoke d'attribution, 3 tâches)
@@ -55,12 +67,33 @@ Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs
 >    scratchpad, tronqué à 600 caractères (`policy.py:30`) : la coupe tombe sur `"Headphones"…`,
 >    l'ID à 812 a DISPARU. Le rattrapage devient structurellement impossible, même pour un agent
 >    compétent. La fenêtre de TOURS est hors de cause (t10→t13 = 3 tours, cap à 8).
-> 3. **Le juge (NON VALIDÉ)** — `NL_ASSERTION = 1.0` sur 3 épisodes qui n'ont rien conclu, ont bouclé
->    et ont émis un placeholder. Trois 1.0 exacts, c'est la signature d'un tampon encreur ou d'un
->    défaut à 1.0 sur chemin d'erreur. Sans effet ici (`DB=0` annule le produit), mais **aucun reward
->    NL n'est interprétable tant que le juge n'a pas recalé un imposteur**.
+> 3. **Le juge — SONDÉ, et il ne discrimine pas.** Les 3 `NL_ASSERTION = 1.0` s'expliquent :
+>    tâches 0 et 1 ont `nl_assertions` **vide** ⇒ 1.0 vacu, juge jamais appelé. La tâche 2 est le
+>    SEUL appel réel de tout le smoke — assertion « *there are 10 t-shirt options available* »,
+>    verdict **MET**, alors que l'agent a listé **9** options, n'a jamais prononcé « 10 », et a
+>    conclu par « Some items are not available ». **Faux positif, 1 sur 1.**
+>    ⇒ `NL_ASSERTION` est inexploitable en l'état : soit absent (74/114), soit complaisant.
+>    **Lire le `DB` seul** — objectif, calculé par l'évaluateur, et sur 74/114 tâches c'est déjà
+>    TOUT le reward. Corollaire : les 74 tâches vacues forment un banc PROPRE, sans juge du tout.
 >
 > Règle de la maison : aucun signal n'est cru tant qu'il n'a pas recalé un imposteur crédible.
+
+> ### `retail_cap2500` — l'artefact d'éviction réparé, et le zéro qui RESTE
+>
+> Même config, mêmes 3 tâches, seul `_TRANSCRIPT_CHARS` change (600 → 2500, premier palier au-dessus
+> du p95 mesuré = 2164 sur 1357 payloads τ²-retail ; le 600 ne couvrait que **38.6%** et tronquait
+> **62.6%** des résultats — régime normal, pas cas limite).
+>
+> **L'artefact disparaît** : « NOM passé comme `product_id` » 6 → **0** · ID numérique correct 2 → 4 ·
+> erreurs d'outil 14 → **5** · la tâche 1 cesse de boucler et conclut en **10** tours au lieu de 16.
+> **Le `DB` reste 0.0 sur les 3 tâches.**
+>
+> ⇒ L'éviction à 600 caractères n'était PAS la cause du 0% : c'était du bruit par-dessus un vrai
+> échec. **Qwen nu échoue ces 3 tâches retail pour de bon, artefact retiré.** C'est le premier
+> chiffre de cette table qui dise quelque chose sur le modèle. n=3 : indicatif, pas une baseline.
+>
+> ⚠️ Le prompt de la politique a CHANGÉ (cap 600 → 2500) : les runs d'avant le 2026-07-15 ne sont
+> pas comparables à ceux d'après.
 
 > **Juge CONSTANT** : à partir du 2026-07-15, tous les bras d'une même comparaison (baseline / WM /
 > Sonnet 4.6) doivent être scorés par le MÊME juge — le Qwen local. Qwen-juge-Qwen est faible dans
