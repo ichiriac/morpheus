@@ -16,12 +16,23 @@ from .metrics import SuccessVsTurns
 
 BENCHMARKS_FILE = "BENCHMARKS.md"
 
+# Ancre d'insertion : `append_benchmark_row` insère la nouvelle ligne JUSTE AVANT ce marqueur.
+# Pourquoi une ancre et pas une position : le fichier a d'abord été écrit en mode "a" (fin de
+# fichier). Dès qu'on a ajouté de la prose SOUS le tableau (blocs d'avertissement, section
+# « Signal goal-relative »), chaque run a déposé sa ligne derrière cette prose — hors du tableau,
+# donc non rendue en markdown. Deux lignes du 13/07 y sont restées invisibles des semaines, dont
+# le 100% telecom. Toute heuristique de position (« après la dernière ligne qui commence par | »)
+# se recasserait au prochain remaniement de la prose : l'ancre est explicite et déplaçable à la
+# main. Elle DOIT rester à la fin du tableau du journal.
+BENCH_ANCHOR = "<!-- BENCH:APPEND -->"
+
 _HEADER = (
     "# Résultats de bench morpheus\n\n"
     "Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs nombre de "
     "tours** ; la thèse veut voir la courbe *world-model* diverger de la baseline à 8+ tours.\n\n"
     "| Date (UTC) | Run | Env / domaine | Mode | Variante | Modèle | K/H/Tmax | Tâches | Réussite | Courbe (tours:réussite) |\n"
     "|---|---|---|---|---|---|---|---|---|---|\n"
+    f"{BENCH_ANCHOR}\n"
 )
 
 
@@ -74,7 +85,13 @@ def render_run_markdown(cfg: Config, metric: SuccessVsTurns, out_dir: str | Path
 def append_benchmark_row(cfg: Config, metric: SuccessVsTurns, out_dir: str | Path,
                          started_at: str | None = None,
                          path: str | Path = BENCHMARKS_FILE) -> None:
-    """Ajoute une ligne récapitulative au journal cumulatif (crée l'en-tête si absent)."""
+    """Insère une ligne récapitulative dans le journal cumulatif, À L'ANCRE `BENCH_ANCHOR`.
+
+    L'ancre marque la fin du tableau : la ligne s'insère juste avant, donc DANS le tableau, quelle
+    que soit la prose qui suit. Sans ancre (fichier antérieur à ce mécanisme), on retombe sur un
+    ajout en fin de fichier — la ligne serait hors tableau, mais on ne PERD jamais un résultat qui
+    vient de coûter des heures de GPU : on écrit, et on prévient bruyamment.
+    """
     p = Path(path)
     if not p.exists() or p.stat().st_size == 0:
         p.write_text(_HEADER, encoding="utf-8")
@@ -84,8 +101,14 @@ def append_benchmark_row(cfg: Config, metric: SuccessVsTurns, out_dir: str | Pat
         f"| {cfg.orchestrator.k_candidates}/{cfg.orchestrator.horizon}/{cfg.orchestrator.max_turns} "
         f"| {metric.n} | {metric.overall:.1%} | {_curve_compact(metric)} |\n"
     )
+    text = p.read_text(encoding="utf-8")
+    if BENCH_ANCHOR in text:
+        p.write_text(text.replace(BENCH_ANCHOR, f"{row}{BENCH_ANCHOR}", 1), encoding="utf-8")
+        return
     with p.open("a", encoding="utf-8") as f:
         f.write(row)
+    print(f"  ⚠️  {p} : ancre {BENCH_ANCHOR} absente — ligne ajoutée en FIN DE FICHIER, donc "
+          f"probablement hors du tableau. Replacer la ligne et poser l'ancre à la fin du tableau.")
 
 
 def write_reports(cfg: Config, metric: SuccessVsTurns, out_dir: str | Path,

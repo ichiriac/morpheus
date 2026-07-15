@@ -32,6 +32,35 @@ Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs
 | 2026-07-13 16:26 | `jepa_wm_smoke` | mock/retail | — | world-model | `stub` | 3/1/8 | 3 | 0.0% | 4:0%(n1) · 8:0%(n1) · 12:0%(n1) |
 | 2026-07-13 17:38 | `qwen_tau2_telecom_solo_v2` | tau2/telecom | solo | world-model | `Qwen/Qwen3-32B-AWQ` | 2/1/6 | 3 | 100.0% | 0:100%(n3) |
 | 2026-07-13 18:08 | `jepa_wm_tau2` | mock/retail | — | world-model | `stub` | 3/1/8 | 3 | 0.0% | 4:0%(n1) · 8:0%(n1) · 12:0%(n1) |
+| 2026-07-15 20:26 | `retail_attrib` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 3 | 0.0% — **DB=0 / NL=1.0**, ATTRIBUÉ ✅ | 5:0%(n2) · 11:0%(n1) |
+<!-- BENCH:APPEND -->
+
+> ### `retail_attrib` — le premier 0% ATTRIBUABLE (smoke d'attribution, 3 tâches)
+>
+> Contrairement aux 6 lignes du 13/07, ce zéro est décomposé. **Le juge n'est plus en cause** : il est
+> câblé sur le vLLM local, il répond, il rend du parsable — `NL_ASSERTION = 1.0` sur les 3 tâches.
+> **Le dialogue n'est pas en cause** : `respond_to_user` circule (2 / 2 / 7 émissions) et le user-sim
+> répond. C'est la composante **DB qui est nulle** ⇒ `reward = 0 × 1 = 0`. Les 3 tâches finissent au
+> plafond de 16 tours, aucune conclue.
+>
+> **Trois propriétaires, séparés — chacun son traitement :**
+> 1. **Qwen (à MESURER, pas à réparer)** — il passe le NOM du produit là où un ID est attendu :
+>    `get_product_details(product_id='Mechanical Keyboard')` → « Product not found », ×6. Au tour 11,
+>    `[ÉTAT COURANT]` (jamais tronqué) contenait `"Mechanical Keyboard": "1656367028"` à l'offset 812
+>    sur 1478 caractères : l'ID était **littéralement sous ses yeux**. Il émet aussi un placeholder
+>    `<new_item_id_keyboard>` malgré l'interdit de `policy.py:21`. Motif sur les 3 tâches :
+>    `get_product_details` ×6 · `get_order_details` ×10 · `respond_to_user` ×7 — la rubrique
+>    `loop_no_progress`, en vrai. C'est le niveau réel du modèle : la baseline existe pour le montrer.
+> 2. **Le harnais (à RÉPARER)** — après le tour 11, la table `nom → ID` n'est plus que dans le
+>    scratchpad, tronqué à 600 caractères (`policy.py:30`) : la coupe tombe sur `"Headphones"…`,
+>    l'ID à 812 a DISPARU. Le rattrapage devient structurellement impossible, même pour un agent
+>    compétent. La fenêtre de TOURS est hors de cause (t10→t13 = 3 tours, cap à 8).
+> 3. **Le juge (NON VALIDÉ)** — `NL_ASSERTION = 1.0` sur 3 épisodes qui n'ont rien conclu, ont bouclé
+>    et ont émis un placeholder. Trois 1.0 exacts, c'est la signature d'un tampon encreur ou d'un
+>    défaut à 1.0 sur chemin d'erreur. Sans effet ici (`DB=0` annule le produit), mais **aucun reward
+>    NL n'est interprétable tant que le juge n'a pas recalé un imposteur**.
+>
+> Règle de la maison : aucun signal n'est cru tant qu'il n'a pas recalé un imposteur crédible.
 
 > **Juge CONSTANT** : à partir du 2026-07-15, tous les bras d'une même comparaison (baseline / WM /
 > Sonnet 4.6) doivent être scorés par le MÊME juge — le Qwen local. Qwen-juge-Qwen est faible dans
