@@ -6,8 +6,12 @@
 #   morpheus run --config configs/qwen_tau2_jepawm.yaml --no-world-model --out runs/tau2_retail_baseline
 #   morpheus run --config configs/qwen_tau2_jepawm.yaml               --out runs/tau2_retail_jepawm
 #
-# ⚠️ Mesure PAS encore équitable (retail exige des messages texte à l'utilisateur ; la politique
-# n'émet que des appels d'outils — cf. qwen_tau2.yaml). On mesure le MÉCANISME, pas un score absolu.
+# NOTE (2026-07-15) : l'avertissement « mesure PAS encore équitable — la politique n'émet que des
+# appels d'outils » qui vivait ici était PÉRIMÉ (cf. qwen_tau2.yaml). `respond_to_user` existe
+# depuis le 13/07 12:26 et représente 41% des tours annotés. Le vrai défaut des runs retail du
+# 13/07 était le juge NL non câblé (404 → reward nul par construction), corrigé à 19:43.
+# ⚠️ Qwen jugeant Qwen reste une mesure INDICATIVE. Elle n'est interprétable qu'à juge CONSTANT
+# entre les bras (baseline / WM / Sonnet) — jamais contre un chiffre de leaderboard jugé gpt-4.1.
 
 policy:
   kind: openai

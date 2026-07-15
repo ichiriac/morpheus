@@ -3,11 +3,17 @@
 # pointe le user-sim sur le MÊME serveur vLLM Qwen (litellm, endpoint OpenAI-compatible) pour
 # rester single-GPU. base_url à adapter si le serveur est ailleurs.
 #
-# ⚠️ LIMITE CONNUE (voir TODO étape 2) : la politique de morpheus n'émet que des appels
-# d'outils, pas de messages texte à l'utilisateur. Les tâches retail exigeant un vrai dialogue
-# (demander l'id de commande, confirmer…) seront pénalisées tant que l'orchestrateur n'a pas
-# une action « répondre à l'utilisateur ». Le pipeline tourne, mais la mesure n'est PAS encore
-# équitable. C'est le prochain sous-chantier.
+# NOTE (2026-07-15) : l'avertissement « la politique n'émet que des appels d'outils, pas de
+# messages texte » qui vivait ici était PÉRIMÉ. Il datait de l'étape 2 (commit 9d90121, 12:02) ;
+# `respond_to_user` a été livré à 12:26 le même jour (commit 7d6349d, étape 3 partie 1). L'outil
+# est exposé par l'adaptateur en mode non-solo (`tau2_adapter.py:71`) et `step()` intercepte
+# l'action pour router le TEXTE vers le simulateur d'utilisateur (`tau2_adapter.py:109`).
+# Mesuré, pas supposé : 44 des 108 tours annotés (41%) sont des `respond_to_user`
+# (`data/annotations/tau2_error_novelty.jsonl`) — le dialogue marche.
+# ⚠️ La vraie limite des runs retail du 13/07 était AILLEURS : le juge NL n'a été câblé qu'à
+# 19:43 (commit 1158aa0). Avant ça le défaut τ² était `gpt-4.1` → 404 → composante NL = 0, et
+# 112/114 tâches retail ont une NL_ASSERTION dans `reward_basis` ⇒ reward = db × 0 = 0 PAR
+# CONSTRUCTION, quoi que l'agent fasse. Cf. BENCHMARKS.md (lignes retail marquées ⚠️ pré-juge).
 #
 # Prérequis : serveur vLLM Qwen up (scripts/serve_qwen_vllm.sh).
 

@@ -1,10 +1,21 @@
 #!/usr/bin/env python
 """Génère des trajectoires τ²-bench **réussies** en rejouant les actions de référence.
 
-Débloque `scripts/validate_goal_signal.py` (gate étape 4). Constat de la session 2026-07-13 :
-Qwen-32B nu échoue toutes les tâches retail (baseline 0/8) ⇒ **0 trajectoire résolue** pour
-tester H1 (monotonie sur succès) / H2 (séparation succès/échec). Or τ² fournit, pour chaque
-tâche, la **trajectoire experte** (`evaluation_criteria.actions`, toutes `requestor=assistant`).
+Débloque `scripts/validate_goal_signal.py` (gate étape 4).
+
+⚠️ REQUALIFICATION (2026-07-15) — la JUSTIFICATION historique de ce script était fausse ; le
+script, lui, reste valide. On lisait ici : « Qwen-32B nu échoue toutes les tâches retail
+(baseline 0/8) ⇒ 0 trajectoire résolue ». Ce 0/8 ne mesurait PAS Qwen : le juge des
+NL-assertions n'était pas câblé (défaut τ² = `gpt-4.1` → 404 → composante NL = 0), et 112/114
+tâches retail portent une `NL_ASSERTION` dans `reward_basis` ⇒ `reward = db × 0 = 0` par
+construction, quel qu'ait été le comportement de l'agent. **On ne sait toujours pas si Qwen nu
+échoue sur retail** — la question est ouverte (cf. BENCHMARKS.md, bloc ⚠️ des lignes retail).
+Ce que ça ne change pas : le corpus produit ici reste du VRAI (états τ² réellement traversés,
+`db_reward` vérifié par l'évaluateur officiel), et rejouer la trajectoire experte reste la
+bonne façon d'obtenir des positifs propres — même si Qwen s'avérait capable d'en résoudre.
+
+Or τ² fournit, pour chaque tâche, la **trajectoire experte**
+(`evaluation_criteria.actions`, toutes `requestor=assistant`).
 En la rejouant contre l'environnement du domaine, on atteint par construction l'état-DB cible
 (`db_reward == 1.0`, vérifié par le vrai évaluateur τ²) → autant de **positifs** propres.
 
