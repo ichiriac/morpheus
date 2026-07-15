@@ -29,6 +29,7 @@ clair, la Phase 1 mock reste exécutable.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from ..config import EvalConfig
 from ..orchestrator.types import Action, Observation, StepResult
@@ -346,7 +347,23 @@ def build_tau2_factory(cfg: EvalConfig):
                 "tau2_solo: false et renseigner tau2_user_llm."
             )
 
-    # sous-ensemble déterministe : les N premières tâches (pas de mélange → reproductible).
+    # Banc explicite (manifeste d'IDs) si fourni, sinon sous-ensemble déterministe = les N
+    # premières tâches (pas de mélange → reproductible).
+    if cfg.tau2_task_ids_file:
+        manifest = json.loads(Path(cfg.tau2_task_ids_file).read_text(encoding="utf-8"))
+        want = [str(i) for i in manifest["task_ids"]]
+        by_id = {str(t.id): t for t in tasks}
+        missing = [i for i in want if i not in by_id]
+        if missing:
+            # Un banc silencieusement amputé produirait des chiffres non comparables entre bras :
+            # échouer ICI, avant des heures de GPU.
+            raise ValueError(
+                f"manifeste {cfg.tau2_task_ids_file!r} : {len(missing)} id(s) absent(s) du domaine "
+                f"{cfg.domain!r} : {missing[:5]}{'…' if len(missing) > 5 else ''}. "
+                f"Régénérer le manifeste (scripts/build_nojudge_bench.py) contre la version de "
+                f"τ²-bench réellement installée."
+            )
+        tasks = [by_id[i] for i in want]        # ordre du MANIFESTE, pas celui du domaine
     n = min(cfg.tasks, len(tasks))
     selected = tasks[:n]
     ids_turns = [(t.id, _num_agent_actions(t)) for t in selected]

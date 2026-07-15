@@ -1,0 +1,71 @@
+# BANC CANONIQUE τ²-retail « sans juge » — 74 tâches, reward = db SEUL.
+#
+# Pourquoi ce banc (établi 2026-07-15, cf. BENCHMARKS.md) : le juge NL-assertions ne discrimine
+# pas (faux positif 1/1 sur le seul appel réel du smoke `retail_attrib`), et 74/114 tâches retail
+# ont `nl_assertions` vide ⇒ NL=1.0 par vérité vacue, SANS appel LLM ⇒ reward = db × 1 = db.
+# C'est le protocole τ² officiel, sans juge dans la boucle, sans distorsion.
+# Le manifeste `data/benchmarks/retail_nojudge.json` EST la définition du banc : versionné,
+# régénérable (scripts/build_nojudge_bench.py), et échoue si un id manque.
+#
+# ⚠️ BIAIS ASSUMÉ : les 74 ont des consignes utilisateur plus courtes que les 40 jugées
+# (533 vs 643 car., AUC 0.339, p≈0.005) ⇒ sous-échantillonne l'extraction dialogique ⇒ surestime
+# légèrement la compétence. Rapporté ; dans ce sens-là, acceptable.
+#
+# TOUS les bras tournent sur EXACTEMENT cette liste, même seed :
+#   morpheus run --config configs/qwen_tau2_retail74.yaml --no-world-model --out runs/retail74_baseline
+#   morpheus run --config configs/qwen_tau2_retail74.yaml               --out runs/retail74_jepawm
+#
+# Prérequis : vLLM Qwen up (HF_HOME hors /workspace : quota 10 Go).
+
+policy:
+  kind: openai
+  model: Qwen/Qwen3-32B-AWQ
+  base_url: http://localhost:8000/v1
+  api_key_env: null
+  temperature: 0.7
+  max_tokens: 512
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# world_model LLM IGNORÉ quand jepa_wm.enabled — gardé pour compat de schéma.
+world_model:
+  kind: openai
+  model: Qwen/Qwen3-32B-AWQ
+  base_url: http://localhost:8000/v1
+  api_key_env: null
+  temperature: 0.3
+  max_tokens: 256
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+orchestrator:
+  k_candidates: 4
+  horizon: 1               # JepaWorldModel v0 : lookahead latent à 1 pas
+  max_turns: 16
+  # surprise_threshold : non fixé ⇒ le world-model décide (JepaWorldModel = 0.20).
+  use_world_model: true
+  concurrency: 4           # ne parallélise QUE les rollouts du WM — sans effet en --no-world-model
+
+jepa_wm:
+  enabled: true
+  checkpoint: checkpoints/jepa_tau2_align/jepa.pt
+  device: cpu             # CPU : pas de contention VRAM avec le vLLM Qwen
+
+eval:
+  env: tau2
+  domain: retail
+  tau2_solo: false
+  tau2_max_steps: 40
+  tau2_user_llm: openai/Qwen/Qwen3-32B-AWQ
+  tau2_user_base_url: http://localhost:8000/v1
+  tau2_user_api_key_env: null
+  # PAS de tau2_judge_* : les 74 tâches du manifeste ont `nl_assertions` vide, donc le juge n'est
+  # JAMAIS appelé (sortie anticipée). Le câbler ne changerait rien — ne pas le câbler rend la
+  # propriété du banc explicite : aucun juge dans la boucle.
+  tau2_task_ids_file: data/benchmarks/retail_nojudge.json
+  tasks: 74
+  turn_buckets: [4, 8, 12]
+  seed: 0
+  out_dir: runs/retail74_baseline

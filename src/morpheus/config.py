@@ -83,6 +83,14 @@ class EvalConfig:
     tau2_solo: bool = False
     tau2_max_steps: int = 30              # garde-fou interne τ² (≥ 2×max_turns conseillé)
     tau2_split: str | None = None         # nom de split de tâches (optionnel)
+    # Manifeste de banc : chemin d'un JSON `{"task_ids": ["0", "3", …]}` (cf.
+    # scripts/build_nojudge_bench.py). Sélectionne EXACTEMENT ces tâches, dans l'ordre du
+    # manifeste — au lieu du défaut « les N premières ». C'est la DÉFINITION d'un banc : tous les
+    # bras d'une comparaison (baseline / world-model / Sonnet / Qwen-natif) doivent tourner sur la
+    # même liste, sinon les écarts ne sont pas interprétables. Un id absent du domaine est une
+    # ERREUR (échouer ici, pas mesurer un banc silencieusement amputé). `tasks` tronque encore la
+    # liste si elle est plus courte (pratique pour un smoke sur le même banc).
+    tau2_task_ids_file: str | None = None
     tau2_user_llm: str | None = None      # modèle litellm du user-sim (ex. openai/Qwen/Qwen3-32B-AWQ)
     tau2_user_base_url: str | None = None # base_url du user-sim (ex. http://localhost:8000/v1)
     tau2_user_api_key_env: str | None = None
