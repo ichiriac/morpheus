@@ -76,8 +76,8 @@ def test_jepa_wm_is_drop_in_orchestrator(jepa_ckpt):
 
 def test_jepa_wm_lookahead_fires_with_multiple_candidates(jepa_ckpt):
     """Chemin MPC réel : avec >1 candidats distincts, le loop APPELLE le world-model latent
-    (rollout → predicted_state latent, divergence calculée, sélection du meilleur). Le stub ne
-    propose qu'1 candidat → ce chemin n'était sinon jamais exercé en intégration."""
+    (rollout → predicted_state latent, divergence calculée, sélection du meilleur). Politique
+    fixe : garantit >1 candidats à CHAQUE tour, sans dépendre de l'heuristique du stub."""
     from morpheus.agents.surprise import SurpriseRouter
     from morpheus.config import OrchestratorConfig
     from morpheus.envs.mock_env import make_mock_env

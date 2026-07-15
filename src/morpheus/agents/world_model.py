@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 
+from .. import prompt_tags as T
 from ..llm.base import LLMClient, system, user
 from ..orchestrator.types import Action, State
 from ..text import strip_reasoning
@@ -55,9 +56,9 @@ class WorldModel:
     def predict(self, state: State, action: Action) -> str:
         """ŝ' textuel : l'état latent/texte prédit après `action`."""
         prompt = (
-            "[PREDICT_NEXT_STATE]\n"
-            f"[STATE]{state.text}[/STATE]\n"
-            f"[ACTION]{action}[/ACTION]\n"
+            f"{T.PREDICT_NEXT_STATE}\n"
+            f"{T.block(T.STATE, state.text)}\n"
+            f"{T.block(T.ACTION, action)}\n"
             "Prédis l'état résultant."
         )
         return strip_reasoning(self.llm.complete([system(_SYS_PRED), user(prompt)]))
@@ -69,10 +70,10 @@ class WorldModel:
         seulement sur surprise et si `orchestrator.use_reducibility`. `JepaWorldModel` ne
         l'implémente pas (latent non verbalisable) : la boucle saute la sonde via getattr."""
         prompt = (
-            "[EXPLAIN_GAP]\n"
-            f"[ACTION]{action}[/ACTION]\n"
-            f"[PREDICTED]{predicted}[/PREDICTED]\n"
-            f"[REAL]{real_text}[/REAL]\n"
+            f"{T.EXPLAIN_GAP}\n"
+            f"{T.block(T.ACTION, action)}\n"
+            f"{T.block(T.PREDICTED, predicted)}\n"
+            f"{T.block(T.REAL, real_text)}\n"
             "L'écart est-il réductible ?"
         )
         raw = strip_reasoning(self.llm.complete([system(_SYS_EXPLAIN), user(prompt)]))
@@ -84,9 +85,9 @@ class WorldModel:
     def score_to_goal(self, goal: str, state_text: str) -> float:
         """Proximité au but ∈ [0, 1] (1 = atteint). Judge LLM en Phase 1."""
         prompt = (
-            "[SCORE_GOAL_DISTANCE]\n"
-            f"[GOAL]{goal}[/GOAL]\n"
-            f"[STATE]{state_text}[/STATE]"
+            f"{T.SCORE_GOAL_DISTANCE}\n"
+            f"{T.block(T.GOAL, goal)}\n"
+            f"{T.block(T.STATE, state_text)}"
         )
         raw = strip_reasoning(self.llm.complete([system(_SYS_SCORE), user(prompt)]))
         m = re.search(r"SCORE:\s*(\d+)", raw)

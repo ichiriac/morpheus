@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 
+from .. import prompt_tags as T
 from ..llm.base import LLMClient, system, user
 from ..orchestrator.types import Action, State
 from ..text import snap_to_whitelist, strip_reasoning
@@ -62,10 +63,10 @@ class Policy:
                   + "\n".join(f"- {f}" for f in facts)
                   + f"\n{consigne}\n[/CONNAISSANCE]\n")
         return (
-            f"[GOAL]{state.goal}[/GOAL]\n"
-            f"[ÉTAT COURANT]{state.text}[/ÉTAT COURANT]\n"
+            f"{T.block(T.GOAL, state.goal)}\n"
+            f"{T.block(T.POLICY_STATE, state.text)}\n"
             f"{hist}{kb}"
-            f"[CANDIDATE_TOOLS]{', '.join(tools)}[/CANDIDATE_TOOLS]\n"
+            f"{T.block(T.CANDIDATE_TOOLS, ', '.join(tools))}\n"
             f"Propose jusqu'à {self.k} actions candidates distinctes."
         )
 
