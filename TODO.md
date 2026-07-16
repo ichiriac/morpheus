@@ -277,6 +277,117 @@ Le pod A40 d'origine avait un **driver CUDA 12.8** (`nvidia-smi` → 570.211.01)
 `scripts/serve_qwen_vllm.sh` (marlin + HF_HOME) est **déjà commité** (`006abf5`). Reste juste ce
 `TODO.md` à committer.
 
+## 🔬 SESSION 2026-07-16 — LE RANKER EST MORT (mesuré, pas conçu). LIRE AVANT DE REPRENDRE.
+
+> Deux architectures tuées le même soir : le **vérificateur d'arguments (« Q »)** puis le
+> **ranker**. Les deux avaient été conçues sur la décomposition d'**un seul run à temperature
+> 0.7**. Ce qui suit est mesuré et re-exécutable ; les instruments sont versionnés.
+
+### A. Le JEPA-WM comme ranker est SOUS LE HASARD (`scripts/replay_ranker_offline.py`)
+
+Le rollout JEPA à H=1 **n'appelle jamais la politique** (`jepa_world_model.py::rollout` = pure
+arithmétique latente sur `(goal, state.text, str(action))`), et `State.text == observation.text`
+(`types.py:46`) que la trace persiste en `real_state`. ⇒ **la décision du ranker est rejouable
+hors-ligne, sans vLLM** : `state.text(tour t) == trace[t-2].real_state`. Répondre à « le ranker
+préfère-t-il l'écriture à la relecture ? » coûte des MINUTES, pas des heures de GPU.
+
+Sur `runs/retail74_baseline` (39 ép., 25,6 %), 272 pas à K>1, 26 pas décisifs / 14 épisodes :
+
+| | élit l'écriture experte |
+|---|---|
+| Ranker JEPA (format live) | **2/26 (8 %)** |
+| Ranker JEPA (format d'entraînement) | 4/26 (15 %) |
+| Hasard uniforme | 7,5 attendus · **p(hasard ≤ 2) = 0,0079** |
+| **Baseline `candidates[0]`** | **14/26 (54 %)** |
+
+- **Ce n'est pas du bruit** : étendue médiane intra-candidate-set **0,099** (vs 0,176 intra-épisode,
+  vs 0,0086 du dégénéré historique). Le ranker choisit avec ASSURANCE, contre la cible.
+- **Mécanisme** : il fuit `[0]` (17 % vs 25 % à l'uniforme ; distribution `{0:45, 1:81, 2:57, 3:89}`)
+  alors que l'écriture experte EST en `[0]` dans **14/26** des pas décisifs (`{0:14, 1:7, 2:4, 3:4}`).
+- **Downside** : dévie sur **93 %** des pas des **10** épisodes qui réussissent déjà.
+- **Marché adressable réel : 3/39 = 7,7 points** (tasks 0, 16, 24 — écriture proposée, jamais
+  exécutée), PAS 26. Le ranker en sauve **0/3**. ⇒ **A/B baseline-vs-JEPAWM ANNULÉ** : il
+  mesurerait une régression dont la cause est déjà connue.
+- ⚠️ Les 26 pas ne sont pas indépendants (3 tours corrélés viennent de l'ep0) ⇒ le p est
+  optimiste. Au niveau ÉPISODE : 2/14.
+
+### B. ⛔ « L'écriture experte n'est JAMAIS en candidates[0] » = ARTEFACT DE FILTRE
+
+Le constat fondateur du renversement (« Qwen échantillonne la bonne action et ne la sélectionne
+pas ») venait d'un script filtrant `key(parse(c)) != key(chosen)` pour « lister les candidats non
+choisis ». **La baseline choisit TOUJOURS `[0]`** (`loop.py:122`) ⇒ ce filtre exclut par
+CONSTRUCTION tous les `[0]`. Il ne pouvait produire que « jamais en [0] » : c'était la définition
+du filtre, pas une mesure. Vérifié des deux côtés : 9/19 pas décisifs sur 30 ép. (47 %),
+14/26 sur 39 ép. (54 %) — **et les 9 ont été exécutés**.
+
+⇒ **Qwen n'a pas un problème de sélection : son premier échantillon est l'écriture experte une
+fois sur deux aux pas qui comptent.** La baseline sans ranker est déjà bonne là.
+
+### C. Le mode d'échec DOMINANT : l'écriture prématurée fausse (`scripts/decompose_failures.py`)
+
+Décomposition **corrigée de `tool_error`** (compter `chosen` sans lui donnait « 3 épisodes ont
+tout écrit et échoué » — réel : **0**, les 3 avaient été REJETÉS par l'env) :
+
+| mode | n / 29 échecs |
+|---|---|
+| **écriture PRÉMATURÉE FAUSSE qui RÉUSSIT** | **12** |
+| aucune écriture tentée | 8 |
+| écritures expertes partielles | 8 |
+| **écritures expertes complètes** | **0** |
+| pas d'écriture requise | 1 |
+
+**τ²-retail est IRRÉVERSIBLE** (`policy.md:84` « Exchange or modify order tools can only be called
+once per order » ; `:110` « The agent will not be able to modify or cancel the order anymore » ;
+`:118`/`:130` return/exchange exigent `delivered`). Sur **4 épisodes (2, 20, 27, 34)** la mutation
+fausse **FORCLÔT** l'experte : task 2 → `exchange` réussi au t12, puis le `return` expert au t16
+→ `Error: Non-delivered order cannot be returned`.
+
+⇒ **L'hypothèse « la clôture prématurée est accidentellement alignée sur le fix » était à
+l'envers : la clôture prématurée EST le mode d'échec.** Et le ranker préfère mesurablement les
+écritures (0,685 vs 0,667 pour les lectures, Δ=0,018 — noyé sous une étendue de 0,099). Il
+déclencherait les écritures PLUS TÔT dans un domaine où écrire trop tôt est définitif.
+
+### D. Ce n'est PAS un problème d'information (donc le RAG ne le sauve pas)
+
+L'agent reçoit la policy τ² COMPLÈTE en system_context (`tau2_adapter.py:97` → `:139`), règle
+one-shot incluse. **Il a la règle sous les yeux et la viole.** Par ailleurs `use_rag` vaut
+`False` par défaut (`config.py:47`) et le banc ne l'active pas ⇒ la KB tronquée est **inerte**
+sur ce run. ⇒ pathologie de la POLITIQUE, pas du contexte ni de la sélection.
+
+### E. 5e BUG — mismatch de format d'action, dans le chemin du ranker
+
+Le prédicteur est entraîné sur `name({"order_id": "#W123"})`
+(`replay_reference_trajectories.py:95`, `json.dumps`) et reçoit `name(order_id='#W123')` en live
+(`types.py:23`, `repr()`). **Tout appel JEPA-WM est hors distribution** : `predict`, `divergence`,
+`rollout`. Corollaire : le **seuil δ=0,20** (`jepa_world_model.py:53`) a été calibré (sonde F5)
+sur un format qui ne se produit JAMAIS en live ⇒ le routage de surprise tourne sur une
+calibration fantôme. Corriger fait passer le ranker de 2/26 à 4/26 : réel, mais ne sauve rien.
+- [ ] **À corriger** : aligner les deux formats (choisir `json.dumps` partout, ou re-générer
+      l'alignement au format `repr`), PUIS re-calibrer δ, PUIS re-jouer `replay_ranker_offline.py`.
+
+### ➡️ PROCHAINE MESURE (tranche le sort de la thèse sur 12/29, pas sur 3/39)
+
+- [ ] **Aux 12 pas fatals, le candidate set contenait-il une action NON fatale ?** Si oui (un
+      `respond_to_user` de confirmation, la lecture de statut manquante), un ranker avait de quoi
+      éviter la catastrophe et le marché est > 3. Si le set n'a que des variantes de l'écriture
+      fatale, **le ranker est définitivement hors jeu et c'est le PROPOSEUR**. C'est une mesure,
+      pas un design.
+- [ ] **Finir les 74**, puis **une 2e graine sur les mêmes 74** →
+      `decompose_failures.py --compare` chiffre la stabilité de la décomposition. **Ne PLUS
+      concevoir contre une taxonomie dont la variance n'est pas chiffrée** : les tâches 0/1/5
+      donnaient C1/A/C2 sur un run et D/D/D sur le suivant. C'est ce qui a coûté deux jours.
+- ⚠️ **Ce qui est robuste tient déjà** (272 points de décision, peu sensibles au run) : « sous le
+      hasard », « 93 % de déviation », « 0/29 écriture experte complète ».
+
+### ⚠️ Pile réellement installée ≠ pile « figée » du Journal §1/§2
+
+Mesuré le 2026-07-16 sur le pod qui SERT : **vllm 0.25.1 · torch 2.11.0+cu130 · transformers
+5.14.1** — soit exactement ce que le Journal interdit. Ça tourne parce que le pod a été
+reprovisionné avec un **driver CUDA 13.0** : le pin cu128 existait pour un driver 12.8, et le
+`transformers<5` pour un bug de tokenizer de vllm **0.10.2** (que 0.25.1 n'a pas). ⇒ ne pas
+« réparer » la pile en la downgradant vers le Journal : on casserait un serveur qui marche.
+`sentence-transformers` s'y ajoute sans rien bouger (vérifié : install additive, serveur intact).
+
 ## Décisions figées (ne pas rediscuter)
 
 - **Objectif** : agentique multi-tours (10+ tours) sur **1 GPU < 5000 € (~24-32 Go)**. Qwen

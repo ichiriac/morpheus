@@ -16,7 +16,9 @@ env/
 .ruff_cache/
 
 # Runs / artefacts d'expérience
-runs/
+# `runs/*` et NON `runs/` : git ne descend pas dans un RÉPERTOIRE exclu, donc une négation
+# `!runs/x/…` plus bas resterait lettre morte. Même forme que `checkpoints/*` ci-dessous.
+runs/*
 *.jsonl
 !specs/**/*.jsonl
 # annotations manuelles ERREUR/NOUVEAUTÉ (H3) + trajectoires annotées — versionnées malgré *.jsonl
@@ -44,6 +46,14 @@ checkpoints/*
 !data/router/*.jsonl
 !checkpoints/router/
 !checkpoints/router/**
+# Run baseline retail74 (39 ép., 25,6 %) : SOURCE de toutes les mesures du 2026-07-16 — rejeu
+# hors-ligne du ranker (2/26, sous le hasard) + décomposition des échecs (12/29 écritures
+# prématurées fausses). NON régénérable : le pod est éphémère et le tirage est à temperature
+# 0.7, donc un re-run donne d'autres épisodes — c'est précisément ce qu'on veut chiffrer.
+# Sans ce fichier, replay_ranker_offline.py et decompose_failures.py n'ont plus d'entrée et
+# les chiffres du TODO deviennent invérifiables. ~700 Ko.
+!runs/retail74_baseline/
+!runs/retail74_baseline/*.jsonl
 
 # Secrets
 .env
