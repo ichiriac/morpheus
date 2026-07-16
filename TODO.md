@@ -29,21 +29,47 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader   # ← choisir l
 Deux pistes **indépendantes** peuvent démarrer en parallèle : **A (brancher Qwen)** et
 **B (smoke JEPA)**. Elles ne se bloquent pas.
 
-## État actuel
+## État actuel — au 2026-07-17
 
-- **Specs** `specs/00`→`05` (contexte, archi, bench, scaffold, RunPod+Qwen, entraînement JEPA).
-- **Code testé** : **48 tests verts** (2026-07-13). Boucle fermée MPC + LLM-as-world-model,
-  env mock, métrique réussite-vs-tours, connecteurs LLM (stub/vLLM/Anthropic), pipeline JEPA
-  (data/encoders/model/losses/train), adaptateur τ²-bench (squelette `TODO(tau2)`),
-  **KB/RAG gated par la surprise** (`agents/knowledge.py`, policies τ² → BM25).
-- **Piste A FAITE sur GPU (session 2026-07-12)** : Qwen3-32B-AWQ servi par vLLM sur A40,
-  `check-llm` = OUI ✅, sanity baseline mock 5 tâches = 100 %.
-- **Piste A étape 1 TERMINÉE (session 2026-07-13, après réinstall serveur)** : sanity world-model
-  `qwen_mock_fast.yaml` = **100 % (3 tâches, bucket 4 tours, ~69 s)**. Chemin WM validé sans erreur.
-  (Baseline ≈ WM sur le mock : attendu, trop simple — la vraie mesure c'est τ²-bench.)
-- **Piste B avancée (2026-07-13)** : smoke `train-jepa` **converge** (val pred 0.254→0.062,
-  `checkpoints/jepa/jepa.pt`) ; `inspect-data` sur `hf:Salesforce/APIGen-MT-5k` OK (44 transitions,
-  normalisation `from_messages` correcte).
+> ⚠️ **À lire AVANT toute reprise** : la section **« SESSION 2026-07-16 — LE RANKER EST MORT »**
+> plus bas (sections A→G), et en particulier **§G — le banc est le goulot AVANT l'architecture**.
+> Deux architectures y sont mortes **par la mesure** (le vérificateur d'arguments, puis le ranker).
+> Ne pas les reconstruire.
+
+**Ce qui est ÉTABLI (avec sa barre d'erreur quand elle existe)**
+
+| | valeur | statut |
+|---|---|---|
+| **Baseline τ²-retail** (Qwen3-32B-AWQ nu, sans WM) | **28.4 %**, IC95 [19.4 – 39.5], n=74 | ✅ ligne de départ officielle |
+| **Courbe réussite-vs-tours** | réussit le court (5-8 tours requis), s'écroule sur le long (10-13) | ✅ **la thèse en données** : le goulot est le jugement multi-tours |
+| **Instabilité run-à-run** | **26 %** des tâches changent de verdict entre 2 runs identiques | ⚠️ conditionne tout le reste |
+| **Prédicteur JEPA** | `cos(ẑ', z_next)` = **0.766** vs 0.259 au hasard ; **84.6 %** de récupération top-1 parmi ~9 sosies du même outil | ✅ **sain — le seul actif validé** |
+| `score_to_goal` (le coût) | compteur de pas : R²=0.11 held-out, `goal` **décoratif** (rho 0.974 avec un but télécom) | ⛔ **cassé par la FORME, pas par l'entraînement** |
+| **JEPA-WM comme ranker** | **2/26** (sous le hasard, p=0.0079) vs **14/26** pour la baseline `[0]` | ⛔ **mort, structurellement** |
+| **Q / vérificateur d'arguments** | **0/21** échecs rattrapables ; contre-productif sur 4 | ⛔ **mort** |
+| **Mode d'échec dominant** | **12/29** = écriture prématurée FAUSSE qui RÉUSSIT (4 forclosent la bonne) | 🎯 **le vrai sujet** |
+
+**Pourquoi le ranker est mort — l'argument structurel (meilleur que la mesure)** : `score_to_goal`
+classe par **proximité au but** ⇒ il **maximise la clôture**. Or au pas fatal, la bonne action est une
+lecture de statut ou une confirmation : **elle n'avance PAS vers le but, et c'est tout son intérêt**.
+Un ranker de proximité optimise exactement la quantité qu'il faudrait **suspendre**. Vérifié des deux
+côtés : **l'écriture experte est absente de 0/12 des candidate sets aux pas fatals** — il n'y avait
+rien à classer. ⇒ Tout coût de type **proximité** est disqualifié ici (y compris « but découvert » +
+InfoNCE : on aurait entraîné très proprement la mauvaise grandeur). **La VALEUR survit comme type**
+(`P(succès | s, a)` price la forclusion : après une action forclosante, P=0) — mais **à ne pas
+concevoir avant d'avoir chiffré la variance de la décomposition**.
+
+**Infra / code**
+- **Specs** `specs/00`→`05`. Runbook pod réel = `specs/04-runpod-qwen.md` + `scripts/runpod_setup.sh`
+  (**quota /workspace = 36119 Mio MESURÉ** — cf. Journal §7 ; venv **hors quota** sur `/root`).
+- Boucle fermée MPC, env mock, adaptateur τ²-bench **fonctionnel** (retail user-sim + juge NL local),
+  connecteurs LLM, pipeline JEPA complet, KB/RAG gated, routeur appris.
+- **Banc canonique figé** : `data/benchmarks/retail_nojudge.json` (74 tâches, biais documenté :
+  consignes utilisateur 21 % plus courtes que les 40 jugées ⇒ sous-échantillonne le dialogue).
+- **Instruments de mesure** (le vrai capital de la semaine) : `replay_ranker_offline.py` (**272 pts de
+  décision/run, sans GPU** — l'outil qui a la puissance), `decompose_failures.py`,
+  `probe_fatal_step_alternatives.py`, `probe_verifier_prompt_ab.py`, `build_write_negatives.py`
+  (**123 paires certifiées par l'oracle τ²**), `probe_action_granularity.py`.
 ## 🔬 Bilan session 2026-07-13 (étape 3 + Phase 2) — LIRE AVANT DE REPRENDRE
 
 Longue session de mesure. Beaucoup d'infra + des **résultats négatifs solides** qui cadrent la suite.
@@ -404,13 +430,59 @@ discrimination.** Ce que réclament les 12 pas fatals n'est ni un ranker ni un v
 un **frein à l'écriture** (ne pas muter avant d'avoir lu le statut / fait confirmer). Mais c'est
 un DESIGN — et il ne se décide pas sur un run à T=0.7. Voir la mesure de variance ci-dessous.
 
+### G. 🚨 LES 74 SONT FINIES — et le BANC est le goulot AVANT l'architecture
+
+**Baseline officielle : `Qwen3-32B-AWQ` nu = 28.4 % sur 74, IC95 [19.4 – 39.5]** (±10.1 pts).
+Premier chiffre du projet **avec une barre d'erreur**. Le « 30 % » cité toute la journée du 16/07
+était **9/30 sur le snapshot partiel = 30 % ± 16** : il tombe au bon endroit par chance, pas par
+méthode. **Aucun chiffre antérieur de ce dépôt n'a jamais eu d'IC** — c'est le plus gros artefact
+de la semaine, et il est collectif : on a révisé des architectures sur des écarts tenant dans le bruit.
+
+**Variance run-à-run MESURÉE (39 tâches en recouvrement 15/07 vs 16/07, même seed, même manifeste,
+ordre vérifié identique) : 26 % des tâches changent de verdict entre deux runs IDENTIQUES**
+(10 basculements : 6 échec→succès, 4 succès→échec). L'écart net de 5.1 pts (25.6 → 30.8 %) est un
+**solde qui masque le bruit réel**. ⇒ **Sur un quart des tâches, le succès de Qwen n'est pas un fait,
+c'est une probabilité.** C'est la définition de **pass^k**, la métrique officielle de τ²-bench.
+
+**⛔ L'A/B au niveau ÉPISODE est INFAISABLE sur retail** — effet minimal détectable **14.9 pts à
+n=74**, **11.4 pts à n=114** (retail entier). Détecter +5 pts demanderait **~395 tâches** ; le domaine
+en contient 114. **Même un world-model parfait produirait un effet sous le seuil de détection.**
+Rappel : le marché adressable mesuré du ranker était de **7.7 pts** ⇒ l'A/B qu'on planifiait depuis
+le 14/07 n'aurait **jamais** pu répondre, quelle que soit l'architecture.
+
+**✅ LA SORTIE : arrêter de mesurer à l'épisode.** L'épisode est une variable d'issue à 26 %
+d'instabilité qui agrège ~15 décisions. **`scripts/replay_ranker_offline.py` a 272 points de décision
+par run**, sans GPU, sans variance run-à-run, avec contrôle de ce qu'on mesure — et il a déjà tranché
+le ranker (2/26 vs 14/26, p=0.0079). **C'est l'instrument qui a la puissance.** Il a été construit en
+croyant contourner une contrainte de GPU ; c'est en fait la bonne méthodologie pour ce banc.
+
+**Trois réponses à « la mesure est trop bruitée » — n'en retenir qu'une était l'erreur** :
+1. **Plus de tâches** → hors d'atteinte (plafond structurel à 114).
+2. **Moins de température** → les 26 % viennent de `temperature: 0.7` = bruit **injecté**, pas
+   irréductible. ⚠️ Le **user-sim est aussi un LLM** (température réglée par τ², pas par
+   `policy.temperature` → le mettre à 0 aussi) ; **vLLM n'est pas déterministe à T=0 sous batching
+   concurrent**. ✅ Les K candidats viennent d'**une seule complétion** ⇒ **T=0 ne collapse PAS K**,
+   et les deux bras partagent alors le même préfixe jusqu'à la 1re divergence (régime idéal).
+3. **Plus de runs** → erreur ÷ √K. **5 runs ≈ 9 h GPU ≈ seuil ~5-7 pts** = l'effet d'un banc 5× plus
+   grand sans valider un seul cas neuf.
+
 ### ➡️ PROCHAINE MESURE
-- [ ] **Finir les 74**, puis **une 2e graine sur les mêmes 74** →
-      `decompose_failures.py --compare` chiffre la stabilité de la décomposition. **Ne PLUS
-      concevoir contre une taxonomie dont la variance n'est pas chiffrée** : les tâches 0/1/5
-      donnaient C1/A/C2 sur un run et D/D/D sur le suivant. C'est ce qui a coûté deux jours.
+- [x] ~~Finir les 74~~ **FAIT** : 28.4 % [19.4 – 39.5]. ~~2e graine~~ **FAIT** : instabilité 26 %.
+- [ ] **Décider le régime de mesure AVANT toute architecture** : T=0 (politique **+ user-sim**) sur
+      un run de 74 → chiffrer le coût en réussite et le gain en stabilité. 1h50, tranche l'arbitrage.
+- [ ] **Passer les mesures d'architecture au niveau PAS** (rejeu hors-ligne, 272 pts), pas à l'épisode.
+- [ ] `decompose_failures.py --compare` sur les 2 runs : **quelle part de la décomposition 12/8/8
+      survit à un changement de graine ?** Ne PLUS concevoir contre une taxonomie dont la variance
+      n'est pas chiffrée — les tâches 0/1/5 donnaient C1/A/C2 sur un run et D/D/D sur le suivant.
+      C'est ce qui a coûté deux jours (le Q, puis le ranker).
+- [ ] **Corriger le mismatch de format d'action** (§E) : `action_text()` canonique dans `jepa/data.py`,
+      appelée par **exactement 2 sites** — `replay_reference_trajectories.py:95` (train) et
+      `JepaWorldModel.predict`/`rollout` (live). **NE PAS passer par `Action.__str__`** (6 consommateurs
+      aux contraintes différentes : prompt Qwen, KB, mémoire, WM-LLM, trace+annotations). Le seuil
+      δ=0.20 est à recalibrer après : il a été fixé sur un format qui ne se produit jamais en live.
 - ⚠️ **Ce qui est robuste tient déjà** (272 points de décision, peu sensibles au run) : « sous le
-      hasard », « 93 % de déviation », « 0/29 écriture experte complète ».
+      hasard », « 93 % de déviation », « 0/29 écriture experte complète », « écriture experte absente
+      de 0/12 des pas fatals ».
 
 ### ⚠️ Pile réellement installée ≠ pile « figée » du Journal §1/§2
 

@@ -45,6 +45,7 @@ Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs
 | 2026-07-13 18:08 | `jepa_wm_tau2` | mock/retail | — | world-model | `stub` | 3/1/8 | 3 | 0.0% | 4:0%(n1) · 8:0%(n1) · 12:0%(n1) |
 | 2026-07-15 20:26 | `retail_attrib` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 3 | 0.0% — **DB=0 / NL=1.0**, ATTRIBUÉ ✅ | 5:0%(n2) · 11:0%(n1) |
 | 2026-07-15 20:44 | `retail_cap2500` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 3 | 0.0% | 5:0%(n2) · 11:0%(n1) |
+<<<<<<< Updated upstream
 | 2026-07-16 19:58 | `retail74_baseline_run2` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 74 | 28.4% | 0:100%(n1) · 1:36%(n14) · 2:9%(n11) · 3:17%(n6) · 4:50%(n2) · 5:40%(n10) · 6:33%(n15) · 7:50%(n4) · 8:50%(n2) · 10:0%(n4) · 12:0%(n2) · 13:0%(n3) |
 <!-- BENCH:APPEND -->
 
@@ -103,6 +104,55 @@ Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs
 >
 > ⚠️ Les DEUX runs sont versionnés et doivent le rester : c'est leur **paire** qui est la mesure.
 > Rejouer ne la restaure pas — à temperature 0.7 on obtient un 3e tirage, pas celui-ci.
+=======
+| 2026-07-15 ~21h | `retail74_baseline` (partiel, mort avec la session à 39/74) | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 39 | 25.6 % [14.6 – 41.1] | snapshot git à 30 = `data/bench_snapshots/` (9/30) ; disque = 10/39 |
+| 2026-07-16 21:52 | **`retail74_baseline`** (banc no-judge COMPLET) | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | **74** | **28.4 % — IC95 [19.4 – 39.5]** | reward moyen 0.203 ⇒ ~6 succès `via_close` (DB=1 sans `done`) |
+<!-- BENCH:APPEND -->
+
+> ## 🚨 `retail74_baseline` — LA ligne de référence, et la découverte qui périme tout ce tableau
+>
+> **Qwen3-32B-AWQ nu (sans world-model) = 28.4 % sur les 74 tâches du banc no-judge. IC95 [19.4 – 39.5].**
+> C'est le premier chiffre du projet **avec une barre d'erreur**, et c'est la ligne de départ officielle.
+>
+> **⚠️ AUCUNE autre ligne de ce tableau n'a d'IC, et la plupart sont à n≤8** — donc à ±35 points.
+> Les « 0.0 % » du 13/07 (n=8), le « 100 % » telecom (n=3), le « 50 % » (n=2) : tous compatibles avec
+> à peu près n'importe quoi. **Ne comparez jamais deux lignes de ce tableau sans recalculer un IC.**
+>
+> ### Les trois chiffres de la faisabilité (2026-07-16)
+>
+> | | valeur | source |
+> |---|---|---|
+> | Baseline, n=74 | **28.4 %**, IC95 [19.4 – 39.5] = **±10.1 pts** | `runs/retail74_baseline` |
+> | **Instabilité run-à-run** | **26 %** des tâches changent de verdict entre 2 runs IDENTIQUES | 39 tâches en recouvrement (15/07 vs 16/07, même seed, même manifeste, ordre vérifié identique) |
+> | Effet minimal détectable (A/B apparié) | **14.9 pts** à n=74 · **11.4 pts** à n=114 (retail entier) | — |
+>
+> L'instabilité de 26 % = **10 basculements sur 39** (6 échec→succès, 4 succès→échec). L'écart net de
+> 5.1 points (25.6 % → 30.8 %) est un **solde qui masque le vrai bruit** : sur un quart des tâches, le
+> succès de Qwen n'est pas un fait, c'est une probabilité. C'est exactement pourquoi la métrique
+> officielle de τ²-bench est **pass^k** — on l'a redécouvert à la dure.
+>
+> ### ⛔ Conséquence : l'A/B au niveau ÉPISODE est infaisable sur retail
+>
+> Détecter **+5 pts** demanderait **~395 tâches**. τ²-retail en contient **114** (74 sans juge).
+> **Même un world-model parfait produirait un effet sous le seuil de détection du banc.** Le banc est
+> le goulot AVANT l'architecture.
+>
+> **La sortie n'est pas d'agrandir le banc — c'est d'arrêter de mesurer à l'épisode.** L'épisode est une
+> variable d'issue à 26 % d'instabilité qui agrège ~15 décisions. **Le rejeu hors-ligne
+> (`scripts/replay_ranker_offline.py`) a 272 points de décision par run**, sans GPU et sans variance
+> run-à-run — et il a déjà tranché la question du ranker (2/26 vs 14/26, p=0.0079). C'est l'instrument
+> qui a la puissance ; l'A/B ne l'aura jamais à ce banc.
+>
+> **Trois réponses à « la mesure est trop bruitée »** (ne pas ne retenir que la première) :
+> 1. **Plus de tâches** — hors d'atteinte (plafond structurel à 114).
+> 2. **Moins de température** — les 26 % viennent de `temperature: 0.7` : c'est du bruit **injecté**,
+>    pas irréductible. ⚠️ Deux réserves : le **user-sim est aussi un LLM** (sa température est réglée
+>    par τ², pas par `policy.temperature` — le mettre à 0 aussi) ; et **vLLM n'est pas déterministe à
+>    T=0 sous batching concurrent** (non-associativité des flottants). ✅ Mais les K candidats viennent
+>    d'**une seule complétion** (la politique les liste) ⇒ **T=0 ne collapse PAS K vers 1**.
+> 3. **Plus de runs** — K répétitions divisent l'erreur par √K. 5 runs ≈ 9 h GPU ≈ seuil ~5-7 pts,
+>    soit l'effet d'un banc 5× plus grand sans valider un seul cas neuf. **C'est pass^k.**
+>>>>>>> Stashed changes
 
 > ### `retail_attrib` — le premier 0% ATTRIBUABLE (smoke d'attribution, 3 tâches)
 >
