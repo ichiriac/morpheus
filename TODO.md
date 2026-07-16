@@ -231,17 +231,33 @@ Le pod A40 d'origine avait un **driver CUDA 12.8** (`nvidia-smi` → 570.211.01)
    (vLLM batche) + `rollout` réutilise le ŝ' (un `predict`/tour en moins). Config rapide de
    sanity : `configs/qwen_mock_fast.yaml`. Flags : `--k --horizon --concurrency`. Le vrai run
    se fera sur τ²-bench (avec `concurrency: 8` dans `qwen_local.yaml`), pas sur le mock.
-7. **QUOTA `/workspace` — plafond MESURÉ le 2026-07-16 : `31376 Mio ≈ 30,6 Gio`** (~33 Go déc.).
-   **Méthode** : chunks `dd` jusqu'à `Disk quota exceeded`, deux granularités concordantes
-   (1 Gio, puis 64 Mio). À re-mesurer si le volume est reprovisionné — et à ne JAMAIS citer de
-   mémoire : le nombre « 10 Go » a traîné dans 2 fichiers sans avoir jamais été mesuré, et il
-   était faux (le seul `.hf-cache` en pèse 19).
+7. **QUOTA `/workspace` — plafond MESURÉ le 2026-07-16 (après relèvement) :
+   `36119 Mio ≈ 35,3 Gio`.** Quota provisionné = **38 Go décimaux** (36240 Mio nominal ; mesuré
+   à −0,33 %). *Historique* : `31376 Mio ≈ 30,6 Gio` (≈33 Go) avant le relèvement.
+   **Méthode** : chunks `dd` jusqu'à `Disk quota exceeded`. Deux méthodes indépendantes
+   concordent à **3 Mio près** (base+écrit = 36116 ; `du` au refus = 36119), sur deux
+   granularités (128/8 Mio et 256/16 Mio).
+   ⚠️ **Le relèvement avait été ANNONCÉ à « 35 Go » — c'était faux** (+8,2 % d'écart au mesuré ;
+   38 Go tombe à −0,33 %, exactement la signature de la mesure précédente). Troisième fois qu'un
+   chiffre de quota circule sans mesure. **Ne JAMAIS citer ce nombre de mémoire ni sur parole :
+   re-mesurer.** Le « 10 Go » d'avant avait traîné dans 2 fichiers sans avoir jamais été mesuré,
+   et il était faux (le seul `.hf-cache` en pèse 19).
+   **Mesurer SANS tuer un run en cours** : `runner.py` fait `f.write()`+`f.flush()` par épisode,
+   sans capture — un `Errno 122` pendant un flush tue le run. Sonder dans la fenêtre juste APRÈS
+   une écriture d'épisode (~2,2 min de marge ; la sonde prend ~20 s), et `rm -rf` la sonde
+   immédiatement (`trap cleanup EXIT`).
    **`df` et `statvfs` sont INUTILISABLES ici** : ils annoncent 756 Tio, la taille du cluster
    MooseFS, pas la part du pod. Pas de binaire `mfs*`, pas de `getfattr`, `fallocate` non
    supporté. La mesure empirique est la seule.
-   **Conséquence** : le venv (**9,4 Go**) NE RENTRE PAS. Occupation ~29,9/30,6 Gio ⇒ ~0,8 Go
-   libres. `python3 -m venv .venv` depuis le dépôt échoue en `Errno 122` **à mi-install, après
-   plusieurs minutes de download**. Les deux scripts d'install avaient ce bug.
+   **Conséquence — inchangée malgré le relèvement** : le venv (**9,4 Go**) NE RENTRE TOUJOURS
+   PAS. Occupation ~29,9/35,3 Gio (30612/36119 Mio) ⇒ **~5,4 Gio libres**. `python3 -m venv .venv` depuis le dépôt
+   échoue en `Errno 122` **à mi-install, après plusieurs minutes de download**. Les deux scripts
+   d'install avaient ce bug.
+   **Piste si on veut un venv PERSISTANT** : `/workspace/.pip-cache` (6,8 Go) est du poids mort —
+   il ne contient que la pile NON figée (vllm 0.25 / torch cu130) et rien ne le lit (le cache
+   utile est sur `/root`). Le purger rendrait ~12,2 Gio ⇒ le venv y tiendrait. MAIS `/workspace`
+   est un FS **réseau** : imports Python lents (vllm/torch pèsent). À mesurer avant de décider.
+   Échappatoire prévue : `ALLOW_WORKSPACE_VENV=1`.
    ⇒ **Layout** : `/workspace` (persistant, sous quota) = dépôt + données + poids HF + tau2-bench.
    `/root` (overlay 50 Go, éphémère, sans quota) = venv + cache pip. `VENV_DIR` surchargeable,
    défaut `/root/.venv-morpheus` ; `install_pinned.sh` REFUSE un `VENV_DIR` sous `/workspace`.

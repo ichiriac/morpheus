@@ -43,13 +43,19 @@
 > |---|---|---|
 > | nature | volume réseau MooseFS | overlay conteneur |
 > | survie au restart | **oui** | **non** |
-> | quota | **31376 Mio ≈ 30,6 Gio** (mesuré au `dd`) | aucun (50 Go) |
+> | quota | **36119 Mio ≈ 35,3 Gio** (mesuré au `dd`) | aucun (50 Go) |
 > | contenu | dépôt, données, poids HF (19 Go), tau2-bench | **venv** (9,4 Go), cache pip |
 >
-> Le venv **ne rentre pas** sur `/workspace` : 9,4 Go demandés, ~0,8 Go libres. Un
-> `python3 -m venv .venv` depuis le dépôt échoue en `Errno 122` **à mi-install**. `df` ment ici
-> (il annonce 756 Tio, le cluster entier) — voir `TODO.md` §7 pour la méthode de mesure.
-> Contrepartie : le venv est à refaire après chaque restart (~10 min) ; les 19 Go, jamais.
+> Le venv **ne rentre pas** sur `/workspace` : 9,4 Go demandés, **~5,4 Gio libres** — et ça reste
+> vrai *après* le relèvement du quota à 38 Go. Un `python3 -m venv .venv` depuis le dépôt échoue
+> en `Errno 122` **à mi-install**. Contrepartie : le venv est à refaire après chaque restart
+> (~10 min) ; les 19 Go, jamais.
+>
+> **Ne citez jamais le quota de mémoire — re-mesurez.** `df` ment ici (756 Tio = le cluster
+> MooseFS entier), `statvfs` aussi, et il n'y a ni binaire `mfs*` ni `getfattr`. Deux chiffres
+> ont déjà circulé faux dans ce repo : un « 10 Go » jamais mesuré, et un relèvement *annoncé* à
+> 35 Go qui s'est mesuré à 38. Méthode, historique et précautions (dont : comment sonder sans
+> tuer un run qui écrit) → `TODO.md` §7.
 
 ```bash
 # sur le pod, après git clone du repo

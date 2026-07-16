@@ -34,9 +34,10 @@ source /root/.venv-morpheus/bin/activate
 ```
 
 > **Où atterrit le venv, et pourquoi pas dans le dépôt.** `/workspace` est un volume réseau
-> PERSISTANT mais **sous quota : 30,6 Gio, mesuré au `dd` le 2026-07-16** (`df` y annonce
-> 756 Tio — la taille du cluster, pas la vôtre). Le venv pèse **9,4 Go** et il reste ~0,8 Go :
-> il n'y rentre pas, et `python3 -m venv .venv` échoue en `Errno 122` **à mi-install**.
+> PERSISTANT mais **sous quota : 36119 Mio ≈ 35,3 Gio, mesuré au `dd` le 2026-07-16** (`df` y
+> annonce 756 Tio — la taille du cluster, pas la vôtre). Le venv pèse **9,4 Go** et il reste
+> ~5,4 Gio : il n'y rentre pas — même après le relèvement du quota à 38 Go — et
+> `python3 -m venv .venv` échoue en `Errno 122` **à mi-install**.
 > Défaut : `/root/.venv-morpheus` (overlay 50 Go, sans quota) — surchargeable par `VENV_DIR`,
 > et le script REFUSE un `VENV_DIR` sous `/workspace`. Idem `PIP_CACHE_DIR`.
 > **Contrepartie assumée** : `/root` est éphémère ⇒ venv à refaire après un restart de

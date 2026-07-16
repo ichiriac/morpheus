@@ -26,8 +26,8 @@ TP="${TP:-1}"
 echo ">> Modèle : $MODEL | port : $PORT | max_len : $MAX_LEN | TP : $TP"
 
 # Si `vllm` n'est pas sur le PATH, auto-activer le venv créé par install_pinned.sh.
-# Défaut /root/.venv-morpheus : HORS QUOTA (le venv pèse 9,4 Go, /workspace n'a ~0,8 Go libres
-# sur un plafond mesuré à 30,6 Gio le 2026-07-16). Le `.venv/` dans le dépôt est un vestige :
+# Défaut /root/.venv-morpheus : HORS QUOTA (le venv pèse 9,4 Go, /workspace n'a ~5,4 Gio libres
+# sur un plafond mesuré à 36119 Mio ≈ 35,3 Gio le 2026-07-16). Le `.venv/` du dépôt est un vestige :
 # il n'a jamais pu y tenir. Gardé en secours au cas où quelqu'un aurait un layout à lui.
 VENV_DIR="${VENV_DIR:-/root/.venv-morpheus}"
 if ! command -v vllm >/dev/null 2>&1; then

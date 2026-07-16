@@ -9,7 +9,7 @@
 #   1. `pip install "vllm>=0.6.0"` → vLLM 0.25 + torch cu130 + transformers 5.x. Ça s'installe,
 #      ça sert le modèle — et ça mesure sur une AUTRE pile que celle du banc, sans rien signaler.
 #   2. `python3 -m venv .venv` depuis le dépôt → venv de 9,4 Go sur /workspace, qui est sous
-#      quota (~30,6 Gio, ~0,8 Go libres) → `Errno 122` à mi-install.
+#      quota (plafond mesuré 36119 Mio ≈ 35,3 Gio, ~5,4 Gio libres) → `Errno 122` à mi-install.
 #   3. `[openai,anthropic,dev]` sans `[jepa]` → le banc canonique crashe (sentence-transformers).
 set -euo pipefail
 
