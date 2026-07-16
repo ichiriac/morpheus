@@ -37,22 +37,38 @@ _SYS = (
     "Tu es un VÉRIFICATEUR d'actions d'agent de service client (domaine retail). On te donne : la "
     "demande de l'utilisateur, les données du catalogue et des commandes, et UNE action d'écriture "
     "que l'agent s'apprête à exécuter.\n"
-    "Ta tâche : vérifier CHAQUE argument de l'action contre la demande et les données. L'action "
-    "est-elle celle que l'utilisateur a demandée, sur les BONNES entités, avec les BONS "
-    "identifiants ?\n"
+    "Ta tâche, et ELLE SEULE : vérifier la JUSTESSE DES ARGUMENTS de cette action. Chaque argument "
+    "(identifiant de commande, d'article, de variante, méthode de paiement) désigne-t-il bien "
+    "l'entité que la demande de l'utilisateur et les données imposent ?\n"
     "Une action peut être parfaitement bien formée, s'exécuter sans erreur, ET être fausse (mauvaise "
     "commande, mauvaise variante d'un produit, mauvais article). C'est exactement ce que tu dois "
     "détecter.\n"
+    "INTERDICTION — tu ne juges PAS la COMPLÉTUDE. Ne te demande jamais si l'action traite toute la "
+    "demande, s'il manque une étape, si d'autres actions devraient suivre, ni si elle est prématurée. "
+    "Une action dont TOUS les arguments sont justes est VALIDE, même si elle ne couvre qu'une partie "
+    "de la demande. Un seul argument faux suffit à la rendre INVALIDE.\n"
     "Réponds STRICTEMENT par une seule ligne : `VERDICT: VALIDE` ou `VERDICT: INVALIDE`, suivie "
     "d'une ligne `RAISON: <une phrase>`."
 )
 
 
 def _db(domain="retail") -> dict:
-    for p in (Path("/root/tau2-bench/data/tau2/domains/retail/db.json"),):
+    # Le clone tau2-bench a vécu sur /root (éphémère, perdu au restart) puis sur /workspace
+    # (persistant). On demande son chemin à tau2 lui-même ; les deux emplacements connus
+    # restent en secours.
+    cands = []
+    try:
+        from tau2.utils.utils import DATA_DIR
+
+        cands.append(Path(DATA_DIR) / f"tau2/domains/{domain}/db.json")
+    except Exception:
+        pass
+    cands += [Path(f"/workspace/tau2-bench/data/tau2/domains/{domain}/db.json"),
+              Path(f"/root/tau2-bench/data/tau2/domains/{domain}/db.json")]
+    for p in cands:
         if p.exists():
             return json.loads(p.read_text(encoding="utf-8"))
-    raise FileNotFoundError("db.json retail introuvable")
+    raise FileNotFoundError(f"db.json {domain} introuvable (essayé : {[str(c) for c in cands]})")
 
 
 def _catalog_for(db: dict, args: dict) -> str:
