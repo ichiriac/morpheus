@@ -381,7 +381,17 @@ def build_tau2_factory(cfg: EvalConfig):
         user_llm_args["api_key"] = key or "EMPTY"
         # user-sim Qwen : couper le mode « thinking » (sinon les réponses user sont polluées par
         # des blocs <think>). extra_body est transmis tel quel par litellm à l'endpoint vLLM.
+        # Le thinking reste OFF ici même quand la POLITIQUE l'a activé : le user-sim est
+        # l'ENVIRONNEMENT, pas l'agent sous test — on ne veut pas qu'il devienne plus malin.
         user_llm_args["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        # Température 0 : le user-sim est un LLM, donc une SOURCE DE BRUIT dans l'environnement.
+        # Sa température est réglée par τ² (défaut non nul), PAS par `policy.temperature` — mettre
+        # la politique à 0 sans lui laisserait varier la moitié du contexte. Mesuré le 2026-07-17 :
+        # 26 % des tâches basculaient de verdict entre deux runs identiques ⇒ A/B aveugle sous
+        # ~15 pts. ⚠️ Écart ASSUMÉ au protocole τ² officiel (dont le user-sim est stochastique) :
+        # on cherche la reproductibilité INTERNE pour l'A/B, pas la comparabilité au leaderboard —
+        # dont on est déjà écarté (user-sim = Qwen et non GPT-4, sous-ensemble sans juge).
+        user_llm_args["temperature"] = 0.0
 
     def make(task_index: int) -> Tau2Env:
         task_id, req_turns = ids_turns[task_index % len(ids_turns)]

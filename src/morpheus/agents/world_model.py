@@ -102,9 +102,13 @@ class WorldModel:
         En Phase 2 ce rollout se fera dans le latent JEPA."""
         first_pred = self.predict(state, first)
         best = self.score_to_goal(state.goal, first_pred)
+        # `max_turns` propagé aux états IMAGINÉS : sans lui, les pas gloutons du rollout verraient
+        # un budget vide alors que le vrai PROPOSER en voit un — deux prompts divergents pour la
+        # même politique, et un lookahead qui ne simule pas le régime qu'il est censé anticiper.
         cur = State(goal=state.goal,
                     observation=type(state.observation)(text=first_pred),
                     turn=state.turn + 1,
+                    max_turns=state.max_turns,
                     history=state.history + [str(first)])
         for _ in range(max(0, horizon - 1)):
             cands = policy.propose(cur, tools)
@@ -116,5 +120,6 @@ class WorldModel:
             cur = State(goal=state.goal,
                         observation=type(state.observation)(text=imagined_text),
                         turn=cur.turn + 1,
+                        max_turns=state.max_turns,
                         history=cur.history + [str(nxt)])
         return best, first_pred

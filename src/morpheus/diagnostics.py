@@ -26,11 +26,17 @@ def check_llm(cfg: Config) -> int:
     make_env, _n = build_env_factory(cfg.eval)
     env = make_env(0)
     obs = env.reset()
-    state = State(goal=env.goal(), observation=obs)
+    # `turn`/`max_turns` renseignés : sans eux, `build_prompt` n'émet PAS le bloc [BUDGET] et
+    # `check-llm` validerait un prompt que la boucle n'envoie jamais. Le diagnostic doit exercer
+    # le prompt RÉEL — c'est tout son intérêt, surtout pour valider le parse sous `enable_thinking`.
+    state = State(goal=env.goal(), observation=obs, turn=1,
+                  max_turns=cfg.orchestrator.max_turns)
     tools = env.tool_names()
     policy = Policy(llm, k=cfg.orchestrator.k_candidates)
 
     prompt = policy.build_prompt(state, tools)
+    print("      --- PROMPT ENVOYÉ (doit contenir [BUDGET]) ---")
+    print(_indent(prompt))
     raw = llm.complete([system_prompt(), user(prompt)])
     print("      --- SORTIE BRUTE DE LA POLITIQUE ---")
     print(_indent(raw))

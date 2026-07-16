@@ -22,6 +22,7 @@ from __future__ import annotations
 GOAL = "GOAL"
 STATE = "STATE"                  # état vu par le world-model (predict / score_to_goal)
 POLICY_STATE = "ÉTAT COURANT"    # état vu par la politique (PROPOSER)
+BUDGET = "BUDGET"                # tour courant / budget de tours (PROPOSER seulement)
 ACTION = "ACTION"
 PREDICTED = "PREDICTED"
 REAL = "REAL"

@@ -39,6 +39,13 @@ class State:
     goal: str
     observation: Observation
     turn: int = 0
+    # Budget de tours de l'épisode (= OrchestratorConfig.max_turns). 0 = inconnu ⇒ non rendu dans
+    # le prompt. MESURÉ le 2026-07-17 : sans lui, la politique ne sait NI où elle en est NI ce
+    # qu'il lui reste — elle ne peut pas se rythmer sur ce qu'elle ne voit pas. 59 % des épisodes
+    # du run `retail74_baseline_run2` finissaient au plafond, et les tâches à ≥10 actions de
+    # référence faisaient 0/9 : à ~2.67 tours consommés par pas expert, elles étaient
+    # ARITHMÉTIQUEMENT hors d'atteinte. Cf. TODO §H.
+    max_turns: int = 0
     history: list[str] = field(default_factory=list)
     latent: Any = None                # E_state(observation) en Phase 2+
 

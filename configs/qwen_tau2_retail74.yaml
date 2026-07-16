@@ -22,24 +22,44 @@
 # 2026-07-16), et le cache HF y tient depuis toujours. C'est le VENV (9,4 Go) qui doit sortir,
 # pas les poids.
 
+# ⚠️ RÉGIME REDÉFINI le 2026-07-17 — CE FICHIER N'EST PLUS COMPARABLE AUX RUNS ANTÉRIEURS.
+# Les 4 réglages ci-dessous bridaient Qwen de façon MESURÉE (cf. TODO §H) ; tous les chiffres
+# d'avant (baseline 28,4 %, décomposition des échecs, kappa 0,347) sont mesurés sur un agent
+# handicapé et deviennent obsolètes. La thèse étant d'AUGMENTER Qwen, la ligne de départ doit
+# être Qwen à son meilleur — sinon on mesure un gain contre un épouvantail.
 policy:
   kind: openai
   model: Qwen/Qwen3-32B-AWQ
   base_url: http://localhost:8000/v1
   api_key_env: null
-  temperature: 0.7
-  max_tokens: 512
+  # 0 (était 0.7) : 26 % des tâches basculaient de verdict entre deux runs IDENTIQUES (10/39,
+  # même seed, même manifeste) ⇒ l'A/B était aveugle sous ~15 pts. Ce bruit était INJECTÉ.
+  # ⚠️ Déterminisme IMPARFAIT quand même : vLLM n'est pas déterministe à T=0 sous batching
+  # concurrent (composition des batches → non-associativité des flottants). Reste bien plus
+  # reproductible que 0.7. Le user-sim est mis à 0 en parallèle (envs/tau2_adapter.py).
+  temperature: 0
+  # 4096 (était 512) : OBLIGATOIRE avec enable_thinking. Un <think> tronqué par max_tokens ne
+  # laisse NI balise fermante NI ligne ACTION ⇒ `Policy.propose` retombe sur `tools[0]()` à
+  # chaque tour. Le repli est désormais BRUYANT (`grep PARSE_FALLBACK` sur le log du run) :
+  # s'il apparaît, le run est invalide — remonter max_tokens avant d'interpréter quoi que ce soit.
+  max_tokens: 4096
   extra_body:
     chat_template_kwargs:
-      enable_thinking: false
+      # true (était false) : la cible est d'accompagner Qwen là où il est au TOP, réflexion
+      # activée. Le parseur strippe déjà les blocs <think> (text.py::strip_reasoning).
+      # ⚠️ Vérifier AVANT le run : `morpheus check-llm --config configs/qwen_tau2_retail74.yaml`
+      # (sortie brute + parsing) — c'est le seul contrôle qui dit si le thinking casse le parse.
+      enable_thinking: true
 
 # world_model LLM IGNORÉ quand jepa_wm.enabled — gardé pour compat de schéma.
+# Thinking laissé OFF ici à dessein : c'est un simulateur interne appelé K×H fois par tour, pas
+# l'agent sous test. Température à 0 pour la même raison que la politique.
 world_model:
   kind: openai
   model: Qwen/Qwen3-32B-AWQ
   base_url: http://localhost:8000/v1
   api_key_env: null
-  temperature: 0.3
+  temperature: 0
   max_tokens: 256
   extra_body:
     chat_template_kwargs:
@@ -48,7 +68,18 @@ world_model:
 orchestrator:
   k_candidates: 4
   horizon: 1               # JepaWorldModel v0 : lookahead latent à 1 pas
-  max_turns: 16
+  # 40 (était 16) = le budget PROPRE de τ² (`tau2_max_steps` ci-dessous), que morpheus bridait à
+  # 16 sans raison mesurée. MESURÉ sur `retail74_baseline_run2` : 59 % des épisodes finissaient au
+  # plafond ; un pas expert coûte ~2.67 tours réels (médiane, sur les succès) ; les tâches à ≥10
+  # actions de référence faisaient **0/9**, toutes au plafond — ARITHMÉTIQUEMENT hors d'atteinte
+  # (13 actions ⇒ ~35 tours nécessaires, 16 disponibles). La « courbe » réussite-vs-tours du
+  # 16/07 était donc CONFONDUE avec ce cap, pas un échec de jugement.
+  # Pourquoi 40 et pas 100 : 40 couvre la tâche la plus longue (13 × 2.67 ≈ 35) ET s'aligne sur
+  # τ² ; 100 coûterait 2,5× le GPU pour des tâches qui n'en ont pas besoin.
+  # ⚠️ La donnée est CENSURÉE à 16 : on ne peut pas prédire le résultat à 40. C'est une EXPÉRIENCE.
+  # ⚠️ Garder `_TRANSCRIPT_TURNS` (agents/policy.py) ≥ ce budget, sinon l'agent oublie le début de
+  # sa trajectoire (c'était le cas dans 92 % des épisodes avec 8/16).
+  max_turns: 40
   # surprise_threshold : non fixé ⇒ le world-model décide (JepaWorldModel = 0.20).
   use_world_model: true
   concurrency: 4           # ne parallélise QUE les rollouts du WM — sans effet en --no-world-model

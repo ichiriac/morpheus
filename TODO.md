@@ -466,7 +466,65 @@ croyant contourner une contrainte de GPU ; c'est en fait la bonne méthodologie 
 3. **Plus de runs** → erreur ÷ √K. **5 runs ≈ 9 h GPU ≈ seuil ~5-7 pts** = l'effet d'un banc 5× plus
    grand sans valider un seul cas neuf.
 
+### H. 🚨 LE RÉGIME DE MESURE BRIDAIT QWEN DE 5 FAÇONS — tout ce qui précède est OBSOLÈTE (2026-07-17)
+
+Remarque d'Ioan, vérifiée dans le code et mesurée sur `retail74_baseline_run2`. **On a passé trois
+jours à construire des instruments d'une précision considérable pour mesurer un agent bridé — et on
+n'a jamais interrogé le montage expérimental lui-même.** C'est le plus gros angle mort de la semaine.
+
+| bridage | mesure | statut |
+|---|---|---|
+| **Le tour n'est pas dans le prompt** | `state.turn` existait, **jamais rendu** ⇒ l'agent ne peut pas se rythmer sur ce qu'il ne voit pas | ✅ CORRIGÉ (bloc `[BUDGET]`) |
+| **`_TRANSCRIPT_TURNS = 8`** | **92 % des épisodes (68/74) dépassent 8 tours** ⇒ l'agent avait oublié le début de sa trajectoire dans 92 % des cas | ✅ CORRIGÉ → 40 |
+| **`max_turns = 16`** | **59 % des épisodes au plafond** ; **~2.67 tours réels par pas expert** (médiane, succès) ; **tâches à ≥10 actions : 0/9**, toutes au plafond | ✅ CORRIGÉ → 40 |
+| **`enable_thinking: false`** | la thèse est d'AUGMENTER Qwen ⇒ la ligne de départ doit être Qwen **à son meilleur**, pas un épouvantail | ✅ CORRIGÉ → true |
+| **`temperature: 0.7`** (+ user-sim) | **26 %** de basculements entre runs identiques ⇒ A/B aveugle sous ~15 pts. Bruit **injecté**, pas irréductible | ✅ CORRIGÉ → 0 (les deux) |
+
+**⛔ CE QUE ÇA DÉTRUIT — la « courbe » du 16/07 était un ARTEFACT DE CAP.** « Qwen tient le court et
+lâche le long », célébré comme « l'énoncé de la thèse en données », est **confondu avec `max_turns`** :
+à 2.67 tours par pas expert, une tâche à 13 actions demande **~35 tours** et en avait **16**. Le 0/9
+sur les tâches longues est de l'**arithmétique**, pas un échec de jugement. 11e artefact de la semaine.
+
+**⛔ ET ÇA PÉRIME TOUT** : baseline 28.4 %, décomposition 12/8/8, kappa 0.347, « écriture prématurée
+dominante », marché adressable du ranker — **tous mesurés sur un agent qui ne savait pas quel tour il
+était, avait oublié la moitié de sa trajectoire, disposait de 16 tours pour une tâche qui en demande
+35, ne pouvait pas réfléchir, et tirait à 0.7.** Les INSTRUMENTS survivent (c'est le capital) ; les
+CHIFFRES sont à refaire.
+
+**Couplages trouvés en chemin (non signalés par Ioan, mais bloquants)** :
+- **`max_tokens: 512` → 4096** : OBLIGATOIRE avec le thinking. Un `<think>` tronqué ne laisse NI
+  balise fermante NI ligne ACTION ⇒ `Policy.propose` retombait **silencieusement** sur `tools[0]()`
+  à chaque tour. Le repli est désormais **BRUYANT** (`grep PARSE_FALLBACK` sur le log) : s'il
+  apparaît, le run est **invalide** — c'était le poison parfait pour 9 h de GPU.
+- **Le user-sim est un LLM** : sa température est réglée par τ² (`user_llm_args`), PAS par
+  `policy.temperature`. Mettre la politique à 0 sans lui laissait varier la moitié du contexte.
+  ⚠️ Écart ASSUMÉ au protocole τ² (dont le user-sim est stochastique) : on cherche la
+  reproductibilité INTERNE, pas la comparabilité leaderboard — dont on est déjà écarté.
+- **`_TRANSCRIPT_TURNS` doit rester ≥ `max_turns`**, sinon relever le cap ne fait que déplacer
+  l'amnésie. Budget vérifié : obs = **610 car. en moyenne** (n=1015) ⇒ ~149 tok/tour ⇒ 40 tours ≈
+  6k tok, très en dessous des 32768 de MAX_LEN (100 tours ≈ 21k tiendraient aussi).
+- **vLLM n'est pas déterministe à T=0** sous batching concurrent ⇒ reproductibilité imparfaite,
+  mais très supérieure à 0.7.
+
+**⚠️ Pourquoi 40 et pas 100** : 40 = le budget PROPRE de τ² (`tau2_max_steps: 40`, déjà dans la
+config — morpheus se bridait à 16 sans raison mesurée) et couvre la tâche la plus longue
+(13 × 2.67 ≈ 35). 100 coûterait 2,5× le GPU pour des tâches qui n'en ont pas besoin.
+**⚠️ La donnée est CENSURÉE à 16** : on ne peut PAS prédire le résultat à 40. C'est une EXPÉRIENCE.
+**⚠️ Le bloc `[BUDGET]` est FACTUEL à dessein** (« Tour 12/40 — il reste 28 tours ; au-delà l'épisode
+s'arrête, résolu ou non »). Aucune consigne du type « conclus dès que possible » : le mode d'échec
+dominant est déjà l'écriture prématurée, un nudge vers la clôture l'aggraverait. **L'effet peut
+couper dans les deux sens** (moins de flânerie / plus de précipitation) — à lire dans la re-mesure.
+
+**AVANT DE LANCER** : `morpheus check-llm --config configs/qwen_tau2_retail74.yaml` — il affiche
+désormais le **prompt réel** (avec `[BUDGET]`) + la sortie brute + le parsing. C'est le seul contrôle
+qui dit si le thinking casse le parse. S'il échoue, monter `max_tokens` avant de brûler 9 h.
+
 ### ➡️ PROCHAINE MESURE
+- [ ] **Re-baseline dans le régime corrigé** (§H) : `morpheus run --config configs/qwen_tau2_retail74.yaml
+      --no-world-model --out runs/retail74_baseline_v2`. ~5-7× le GPU (40 tours + thinking) ≈ une nuit.
+      **C'est LA ligne de référence** : la première sur Qwen à son meilleur, et reproductible.
+      Lire en priorité : la courbe à `required_turns` ≥ 10 (était **0/9**) — si elle décolle, le cap
+      était toute l'histoire ; sinon, Qwen échoue vraiment sur le long.
 - [x] ~~Finir les 74~~ **FAIT** : 28.4 % [19.4 – 39.5]. ~~2e graine~~ **FAIT** : instabilité 26 %.
 - [ ] **Décider le régime de mesure AVANT toute architecture** : T=0 (politique **+ user-sim**) sur
       un run de 74 → chiffrer le coût en réussite et le gain en stabilité. 1h50, tranche l'arbitrage.

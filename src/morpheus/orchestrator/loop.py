@@ -74,7 +74,8 @@ class Orchestrator:
     def run(self, env: Env) -> EpisodeResult:
         obs = env.reset()
         tools = env.tool_names()
-        state = State(goal=env.goal(), observation=obs)
+        # `max_turns` porté par l'état ⇒ rendu dans le prompt du PROPOSER (cf. policy.build_prompt).
+        state = State(goal=env.goal(), observation=obs, max_turns=self.cfg.max_turns)
         # Manuel LÉGITIME de l'agent (policy du domaine τ²) : injecté au vrai PROPOSER seulement,
         # PAS dans les rollouts imaginés du world-model (prompts K·H bornés).
         sys_ctx = getattr(env, "system_context", lambda: None)()

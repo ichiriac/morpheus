@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 
 from .. import prompt_tags as T
 from ..llm.base import LLMClient, system, user
@@ -27,7 +28,16 @@ _SYS = (
 
 # Fenêtre de mémoire de la politique (scratchpad ReAct) : nb de couples action→résultat gardés
 # et longueur max de chaque résultat (borne le prompt tout en gardant l'info utile).
-_TRANSCRIPT_TURNS = 8
+#
+# 40 (2026-07-17, MESURÉ) — le 8 précédent était une prudence non chiffrée, et il coûtait cher :
+# **92 % des épisodes (68/74) de `retail74_baseline_run2` dépassaient 8 tours**, donc dans 92 %
+# des cas l'agent avait déjà oublié le début de sa propre trajectoire. Une fenêtre de 8 dans un
+# budget de 16 est une mémoire qui ne fonctionne quasiment jamais.
+# Le coût de la lever est NUL : les observations τ²-retail font **610 car. en moyenne** (médiane
+# 287, p95 1961 ; n=1015 observations réelles) ⇒ ~149 tokens/tour après cap. Budget : 40 tours ≈
+# 6k tokens de scratchpad + ~6k de système/outils ≈ 12k, très en dessous des 32768 de MAX_LEN
+# (même 100 tours tiendraient : ≈21k). Aligné sur `max_turns` — garder les deux cohérents.
+_TRANSCRIPT_TURNS = 40
 # 2500 = premier palier au-dessus du p95 MESURÉ des résultats d'outils τ²-retail (p95 = 2164 sur
 # 1357 payloads : data/tau2_replay/retail.jsonl + trace du smoke `retail_attrib`). Couvre 96.2%
 # des résultats ; coût ≈ 8×2500/4 ≈ 5k tokens, soit 15% d'un contexte 32k — négligeable.
@@ -49,6 +59,7 @@ class Policy:
     def __init__(self, llm: LLMClient, k: int = 4) -> None:
         self.llm = llm
         self.k = k
+        self.n_parse_fallback = 0     # cf. `propose` : compte les replis « aucune action parsée »
 
     def build_prompt(self, state: State, tools: list[str],
                      transcript: list[tuple[str, str]] | None = None,
@@ -76,7 +87,25 @@ class Policy:
             kb = ("[CONNAISSANCE RÉCUPÉRÉE — suite à surprise, à respecter]\n"
                   + "\n".join(f"- {f}" for f in facts)
                   + f"\n{consigne}\n[/CONNAISSANCE]\n")
+        # Où en est-on, et combien reste-t-il ? Absent jusqu'au 2026-07-17 : `state.turn` existait
+        # mais n'était JAMAIS rendu — la politique ne pouvait pas se rythmer sur ce qu'elle ne
+        # voyait pas, alors que 59 % des épisodes finissaient au plafond.
+        # Formulation STRICTEMENT FACTUELLE, à dessein : le mode d'échec dominant est l'écriture
+        # prématurée (~50 % des échecs), donc une consigne du type « conclus dès que possible »
+        # l'aggraverait. On énonce la contrainte, on ne prescrit pas de stratégie.
+        # ⚠️ L'effet est une EXPÉRIENCE, pas un correctif : la conscience du budget peut réduire la
+        # flânerie (bon) OU induire une précipitation (mauvais). À lire dans la re-mesure.
+        budget = ""
+        if state.turn > 0:
+            budget = T.block(
+                T.BUDGET,
+                f"Tour {state.turn}/{state.max_turns} — il reste "
+                f"{max(0, state.max_turns - state.turn)} tours ; au-delà l'épisode s'arrête, "
+                f"résolu ou non."
+                if state.max_turns > 0 else f"Tour {state.turn}.",
+            ) + "\n"
         return (
+            f"{budget}"
             f"{T.block(T.GOAL, state.goal)}\n"
             f"{T.block(T.POLICY_STATE, state.text)}\n"
             f"{hist}{kb}"
@@ -98,7 +127,21 @@ class Policy:
             [system(sys), user(self.build_prompt(state, tools, transcript, facts, route))]
         )
         actions = _parse_actions(raw, tools)
-        if not actions:  # filet de sécurité : au moins une action valide
+        if not actions:
+            # Filet de sécurité : au moins une action valide. ⚠️ SILENCIEUX jusqu'au 2026-07-17 —
+            # or un repli sur `tools[0]()` SANS arguments erre presque toujours : c'est un tour
+            # perdu, indiscernable d'une décision dans la trace. Avec `enable_thinking: true`, un
+            # `max_tokens` trop court tronque le bloc <think> AVANT les lignes ACTION : plus aucune
+            # action parsable, le filet se déclenche à CHAQUE tour, et un run de 9 h est empoisonné
+            # sans qu'un seul message ne l'indique. On le rend BRUYANT — `grep PARSE_FALLBACK` sur
+            # le log suffit à invalider un run avant de l'interpréter.
+            self.n_parse_fallback += 1
+            print(
+                f"⚠️  PARSE_FALLBACK #{self.n_parse_fallback} : aucune action parsée dans "
+                f"{len(raw)} car. de sortie brute (thinking tronqué ? <think> non fermé ?) → "
+                f"repli sur {tools[0] if tools else 'noop'}() — vérifier `policy.max_tokens`.",
+                file=sys.stderr, flush=True,
+            )
             actions = [Action(tool=tools[0])] if tools else [Action(tool="noop")]
         return actions[: self.k]
 
