@@ -99,7 +99,12 @@ def _fmt(tool: str, args: dict) -> str:
     return f"{tool}({json.dumps(args, ensure_ascii=False)})"
 
 
-def _ask(llm, request: str, catalog: str, tool: str, args: dict) -> tuple[bool | None, str]:
+def _ask(llm, request: str, catalog: str, tool: str, args: dict,
+         sys_prompt: str | None = None) -> tuple[bool | None, str, str]:
+    """Rend (verdict, raison, BRUT). Le brut est rendu pour que l'appelant puisse le montrer :
+    un `None` (parse raté) et un vrai INVALIDE se ressemblent dans un score mais pas du tout
+    dans une conclusion. `sys_prompt` permet de rejouer un ancien _SYS à instrument constant
+    (cf. scripts/probe_verifier_prompt_ab.py)."""
     from morpheus.llm.base import system, user
     from morpheus.text import strip_reasoning
 
@@ -107,12 +112,36 @@ def _ask(llm, request: str, catalog: str, tool: str, args: dict) -> tuple[bool |
               f"[DONNÉES CATALOGUE / COMMANDES]\n{catalog}\n\n"
               f"[ACTION D'ÉCRITURE PROPOSÉE]\n{_fmt(tool, args)}\n\n"
               "Cette action est-elle correcte ?")
-    raw = strip_reasoning(llm.complete([system(_SYS), user(prompt)]))
+    raw = strip_reasoning(llm.complete([system(sys_prompt or _SYS), user(prompt)]))
     m = re.search(r"VERDICT:\s*(VALIDE|INVALIDE)", raw, re.I)
     if not m:
-        return None, raw[:80]
+        return None, raw[:80], raw
     r = re.search(r"RAISON:\s*(.+)", raw)
-    return m.group(1).upper() == "VALIDE", (r.group(1)[:90] if r else "")
+    return m.group(1).upper() == "VALIDE", (r.group(1)[:90] if r else ""), raw
+
+
+# Les 3 échecs RÉELS du smoke retail_cap2500 + les écritures expertes correspondantes.
+# ⚠️ 2 cas attendent VALIDE et 2 attendent INVALIDE : une réponse CONSTANTE score 2/4.
+# Tout score < 2 est donc SOUS le tampon-encreur et demande une explication (parse ? biais ?),
+# pas une interprétation directe. Constante de module pour que toute sonde qui compare des
+# variantes tourne PROVABLEMENT sur les mêmes cas.
+HELD_OUT = [
+    ("tâche 0 · C1 · Qwen (1 variante fausse)", "0", "exchange_delivered_order_items",
+     {"order_id": "#W2378156", "item_ids": ["1151293680", "4983901480"],
+      "new_item_ids": ["2299424241", "7747408585"],
+      "payment_method_id": "credit_card_9513926"}, False),
+    ("tâche 0 · C1 · EXPERT (attendu VALIDE)", "0", "exchange_delivered_order_items",
+     {"order_id": "#W2378156", "item_ids": ["1151293680", "4983901480"],
+      "new_item_ids": ["7706410293", "7747408585"],
+      "payment_method_id": "credit_card_9513926"}, True),
+    ("tâche 2 · C2 · Qwen (mauvaise commande)", "2", "return_delivered_order_items",
+     {"order_id": "#W6679257", "item_ids": ["5996159312"],
+      "payment_method_id": "credit_card_9513926"}, False),
+    ("tâche 2 · C2 · EXPERT (attendu VALIDE)", "2", "return_delivered_order_items",
+     {"order_id": "#W2378156",
+      "item_ids": ["4602305039", "4202497723", "9408160950"],
+      "payment_method_id": "credit_card_9513926"}, True),
+]
 
 
 def main(argv=None) -> int:
@@ -150,26 +179,11 @@ def main(argv=None) -> int:
     print("\n" + "-" * 82)
     print("HELD-OUT — les 3 écritures RÉELLES du smoke retail_cap2500 (test d'entrée)")
     print("-" * 82)
-    held = [
-        ("tâche 0 · C1 · Qwen (1 variante fausse)", "0", "exchange_delivered_order_items",
-         {"order_id": "#W2378156", "item_ids": ["1151293680", "4983901480"],
-          "new_item_ids": ["2299424241", "7747408585"],
-          "payment_method_id": "credit_card_9513926"}, False),
-        ("tâche 0 · C1 · EXPERT (attendu VALIDE)", "0", "exchange_delivered_order_items",
-         {"order_id": "#W2378156", "item_ids": ["1151293680", "4983901480"],
-          "new_item_ids": ["7706410293", "7747408585"],
-          "payment_method_id": "credit_card_9513926"}, True),
-        ("tâche 2 · C2 · Qwen (mauvaise commande)", "2", "return_delivered_order_items",
-         {"order_id": "#W6679257", "item_ids": ["5996159312"],
-          "payment_method_id": "credit_card_9513926"}, False),
-        ("tâche 2 · C2 · EXPERT (attendu VALIDE)", "2", "return_delivered_order_items",
-         {"order_id": "#W2378156",
-          "item_ids": ["4602305039", "4202497723", "9408160950"],
-          "payment_method_id": "credit_card_9513926"}, True),
-    ]
     n_ok = 0
-    for label, tid, tool, a, expect_valid in held:
-        got, why = _ask(llm, request_of(tid), _catalog_for(db, a), tool, a)
+    n_unparsed = 0
+    for label, tid, tool, a, expect_valid in HELD_OUT:
+        got, why, _raw = _ask(llm, request_of(tid), _catalog_for(db, a), tool, a)
+        n_unparsed += (got is None)
         ok = (got == expect_valid)
         n_ok += ok
         v = {True: "VALIDE", False: "INVALIDE", None: "IMPARSABLE"}[got]
@@ -177,7 +191,16 @@ def main(argv=None) -> int:
               f"{'VALIDE' if expect_valid else 'INVALIDE'})")
         if why:
             print(f"      raison : {why}")
-    print(f"\n  test d'entrée : {n_ok}/4")
+    print(f"\n  test d'entrée : {n_ok}/4    (référence : une réponse CONSTANTE score 2/4 —")
+    print(f"                            2 cas attendent VALIDE, 2 attendent INVALIDE)")
+    if n_unparsed:
+        print(f"  ⚠️ {n_unparsed}/4 IMPARSABLES : le score ne mesure PAS le jugement du modèle mais "
+              f"le parse.\n     Regarder le brut (scripts/probe_verifier_prompt_ab.py) avant toute "
+              f"conclusion.")
+    elif n_ok < 2:
+        print(f"  ⚠️ {n_ok}/4 est SOUS la constante (2/4) alors que tout parse. Ce n'est donc pas un "
+              f"artefact\n     de parsing : le modèle dévie de la constante du mauvais côté. À "
+              f"expliquer, pas à interpréter tel quel.")
 
     # ---------- 2. FABRIQUE : paires étiquetées par l'oracle ----------
     if not PAIRS.exists():
@@ -194,7 +217,7 @@ def main(argv=None) -> int:
     for r in rows:
         req = request_of(r["task_id"])
         for args_, is_expert in ((r["expert_args"], True), (r["impostor_args"], False)):
-            got, _ = _ask(llm, req, _catalog_for(db, args_), r["tool"], args_)
+            got, _, _ = _ask(llm, req, _catalog_for(db, args_), r["tool"], args_)
             if got is None:
                 unp += 1
                 continue
