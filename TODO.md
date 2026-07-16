@@ -365,13 +365,46 @@ calibration fantôme. Corriger fait passer le ranker de 2/26 à 4/26 : réel, ma
 - [ ] **À corriger** : aligner les deux formats (choisir `json.dumps` partout, ou re-générer
       l'alignement au format `repr`), PUIS re-calibrer δ, PUIS re-jouer `replay_ranker_offline.py`.
 
-### ➡️ PROCHAINE MESURE (tranche le sort de la thèse sur 12/29, pas sur 3/39)
+### F. Le pas fatal offrait-il une sortie ? OUI 8/12 — mais le ranker ne sait pas la saisir
 
-- [ ] **Aux 12 pas fatals, le candidate set contenait-il une action NON fatale ?** Si oui (un
-      `respond_to_user` de confirmation, la lecture de statut manquante), un ranker avait de quoi
-      éviter la catastrophe et le marché est > 3. Si le set n'a que des variantes de l'écriture
-      fatale, **le ranker est définitivement hors jeu et c'est le PROPOSEUR**. C'est une mesure,
-      pas un design.
+`scripts/probe_fatal_step_alternatives.py` — la mesure qui tranche sur les **12**, pas sur les 3.
+
+**Q1 — PROPOSEUR : la sortie existait dans 8/12 des pas fatals (67 %).** Composition des 34
+candidats des sets fatals : mutation fausse 53 % · lecture 29 % · dialogue 18 %. ⇒ **le marché sur
+les 12 est RÉEL et plus grand que 3/39.** Un sélecteur avait de quoi éviter la catastrophe.
+**MAIS l'écriture experte est dans 0/12 de ces sets** : le pas fatal n'est PAS un moment
+« classer l'écriture au-dessus », c'est un moment **« ne pas écrire encore »**. Les sorties sont
+des LECTURES (statut) et du DIALOGUE (confirmation) — exactement ce que `policy.md:110` exige
+(« confirm all the details are correct and be cautious before taking this action »).
+
+**Q2 — RANKER : hors jeu, et le chiffre qui dit le contraire est un ARTEFACT DE SÉLECTION.**
+Brut : le ranker élit une action non fatale **7/8**, la baseline **0/8**. Ça ressemble à un feu
+vert. C'en est pas un :
+- L'échantillon « pas fatals » est **DÉFINI** par « la baseline a tiré le fatal ». La baseline
+  prend toujours `[0]` ⇒ **`[0]` est fatal aux 12 par construction**. Le `0/8` n'est pas un
+  résultat, c'est la définition de l'échantillon. Toute politique qui s'écarte de `[0]` gagne ici.
+- Le bon null n'est pas le hasard uniforme (4,2/8) mais **« ne jamais prendre [0] » = 6,0/8**.
+  Le ranker fait 7/8 : **+1 pas sur 8**, indistinguable du bruit.
+- **Le test qui tranche** — P(le ranker s'écarte de `[0]`) :
+
+| échantillon | s'écarter de `[0]` est… | P(s'écarte) |
+|---|---|---|
+| tous les pas (272) | — | 83,5 % |
+| pas FATALS (`[0]` = mutation fausse) | **BON** | 87,5 % |
+| pas DÉCISIFS, experte en `[0]` (14) | **MAUVAIS** | **92,9 %** |
+
+  S'il discriminait, la 2e ligne serait haute et la 3e BASSE. La 3e est la PLUS HAUTE. **Le
+  ranker fuit `[0]` à taux constant, quoi que `[0]` soit.** Il n'a pas « évité la catastrophe » :
+  il a fait ce qu'il fait 83 % du temps, sur un échantillon choisi pour que ça paie.
+  ⇒ **même famille d'artefact que le filtre `cand != chosen` (§B)** : l'instrument est corrélé au
+  critère de sélection. C'est la 7e de la semaine, et la 2e du même soir.
+
+**⇒ VERDICT : la question du ranker est CLOSE. Le JEPA-WM est un `[0]`-fuyard sans
+discrimination.** Ce que réclament les 12 pas fatals n'est ni un ranker ni un vérificateur : c'est
+un **frein à l'écriture** (ne pas muter avant d'avoir lu le statut / fait confirmer). Mais c'est
+un DESIGN — et il ne se décide pas sur un run à T=0.7. Voir la mesure de variance ci-dessous.
+
+### ➡️ PROCHAINE MESURE
 - [ ] **Finir les 74**, puis **une 2e graine sur les mêmes 74** →
       `decompose_failures.py --compare` chiffre la stabilité de la décomposition. **Ne PLUS
       concevoir contre une taxonomie dont la variance n'est pas chiffrée** : les tâches 0/1/5
