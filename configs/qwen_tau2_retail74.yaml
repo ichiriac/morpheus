@@ -15,7 +15,11 @@
 #   morpheus run --config configs/qwen_tau2_retail74.yaml --no-world-model --out runs/retail74_baseline
 #   morpheus run --config configs/qwen_tau2_retail74.yaml               --out runs/retail74_jepawm
 #
-# Prérequis : vLLM Qwen up (HF_HOME hors /workspace : quota 10 Go).
+# Prérequis : vLLM Qwen up (scripts/serve_qwen_vllm.sh), pile figée via scripts/install_pinned.sh.
+# NB : HF_HOME reste SUR /workspace (/workspace/.hf-cache, 19 Go de poids qui survivent au
+# restart). La consigne inverse qui figurait ici — « HF_HOME hors /workspace : quota 10 Go » —
+# était fausse sur les deux points : le quota mesuré est de 30,6 Gio (cf. TODO §7, 2026-07-16),
+# et le cache HF y tient depuis toujours. C'est le VENV (9,4 Go) qui doit sortir, pas les poids.
 
 policy:
   kind: openai

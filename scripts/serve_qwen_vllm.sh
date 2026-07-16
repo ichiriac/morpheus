@@ -25,11 +25,20 @@ TP="${TP:-1}"
 
 echo ">> Modèle : $MODEL | port : $PORT | max_len : $MAX_LEN | TP : $TP"
 
-# Si `vllm` n'est pas sur le PATH, auto-activer le venv créé par runpod_setup.sh.
-if ! command -v vllm >/dev/null 2>&1 && [ -f .venv/bin/activate ]; then
-  echo ">> venv détecté, activation de .venv"
-  # shellcheck disable=SC1091
-  source .venv/bin/activate
+# Si `vllm` n'est pas sur le PATH, auto-activer le venv créé par install_pinned.sh.
+# Défaut /root/.venv-morpheus : HORS QUOTA (le venv pèse 9,4 Go, /workspace n'a ~0,8 Go libres
+# sur un plafond mesuré à 30,6 Gio le 2026-07-16). Le `.venv/` dans le dépôt est un vestige :
+# il n'a jamais pu y tenir. Gardé en secours au cas où quelqu'un aurait un layout à lui.
+VENV_DIR="${VENV_DIR:-/root/.venv-morpheus}"
+if ! command -v vllm >/dev/null 2>&1; then
+  for _v in "$VENV_DIR/bin/activate" ".venv/bin/activate"; do
+    if [ -f "$_v" ]; then
+      echo ">> venv détecté, activation de $_v"
+      # shellcheck disable=SC1091
+      source "$_v"
+      break
+    fi
+  done
 fi
 
 # Choisir le lanceur : CLI `vllm serve` (récent) ou module python (fallback).
@@ -38,9 +47,10 @@ if command -v vllm >/dev/null 2>&1; then
 elif python -c "import vllm" >/dev/null 2>&1; then
   RUNNER=(python -m vllm.entrypoints.openai.api_server --model "$MODEL")
 else
-  echo "!! vLLM introuvable. Lance d'abord :  bash scripts/runpod_setup.sh" >&2
-  echo "   puis :  source .venv/bin/activate  &&  bash scripts/serve_qwen_vllm.sh" >&2
-  echo "   (ou installe dans l'env courant :  pip install vllm)" >&2
+  echo "!! vLLM introuvable. Lance d'abord :  bash scripts/install_pinned.sh" >&2
+  echo "   puis :  source $VENV_DIR/bin/activate  &&  bash scripts/serve_qwen_vllm.sh" >&2
+  echo "   (n'installe PAS vllm à la main dans l'env courant : la pile est figée, cf. le" >&2
+  echo "    journal TODO §1-2 — une version libre mesure sur une autre pile en silence.)" >&2
   exit 127
 fi
 

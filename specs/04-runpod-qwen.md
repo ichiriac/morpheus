@@ -37,18 +37,40 @@
 
 ## Procédure
 
+> ### ⚠️ Layout disque — le piège n°1 du pod (mesuré le 2026-07-16)
+>
+> | | `/workspace` | `/root` |
+> |---|---|---|
+> | nature | volume réseau MooseFS | overlay conteneur |
+> | survie au restart | **oui** | **non** |
+> | quota | **31376 Mio ≈ 30,6 Gio** (mesuré au `dd`) | aucun (50 Go) |
+> | contenu | dépôt, données, poids HF (19 Go), tau2-bench | **venv** (9,4 Go), cache pip |
+>
+> Le venv **ne rentre pas** sur `/workspace` : 9,4 Go demandés, ~0,8 Go libres. Un
+> `python3 -m venv .venv` depuis le dépôt échoue en `Errno 122` **à mi-install**. `df` ment ici
+> (il annonce 756 Tio, le cluster entier) — voir `TODO.md` §7 pour la méthode de mesure.
+> Contrepartie : le venv est à refaire après chaque restart (~10 min) ; les 19 Go, jamais.
+
 ```bash
 # sur le pod, après git clone du repo
-bash scripts/runpod_setup.sh                 # venv + vllm + morpheus[openai,anthropic,dev]
+bash scripts/install_pinned.sh               # LA recette. Pile figée + venv hors quota.
+#   variables : VENV_DIR (défaut /root/.venv-morpheus), REPO, TAU2, PIP_CACHE_DIR
+#   (`runpod_setup.sh` y délègue : il n'existe plus qu'une seule procédure d'install)
 
 # terminal 1 : servir Qwen (laisser tourner ; tmux conseillé)
 MODEL=Qwen/Qwen3-32B-AWQ bash scripts/serve_qwen_vllm.sh
 #   variables : MODEL, PORT, MAX_LEN, GPU_UTIL, TP (tensor-parallel = nb de GPU)
 
 # terminal 2 : valider le branchement + le format de la politique
-source .venv/bin/activate
+source /root/.venv-morpheus/bin/activate
 morpheus check-llm --config configs/qwen_local.yaml
 ```
+
+> **Pile FIGÉE — ne pas « mettre à jour ».** `install_pinned.sh` pose `vllm==0.10.2` +
+> `torch 2.8.0+cu128` + `transformers 4.57.6` (<5). `pip install "vllm>=0.6.0"` installe vLLM
+> 0.25 + torch cu130 + transformers 5.x : **ça s'installe, ça sert le modèle, et ça mesure sur
+> une autre pile sans rien signaler** — c'est-à-dire le pire mode d'échec. Toutes les mesures du
+> banc ont été prises sur la pile figée ; en changer invalide silencieusement les comparaisons.
 
 ### Ce que `check-llm` vérifie (les 3 étapes)
 1. **Ping** : le serveur répond.

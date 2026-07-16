@@ -25,12 +25,23 @@ git clone git@github.com:ichiriac/morpheus.git && cd morpheus
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 ```
 
-## 2. Installer la pile FIGÉE (⚠️ pas `runpod_setup.sh`)
+## 2. Installer la pile FIGÉE
 
 ```bash
-bash scripts/install_pinned.sh        # vllm 0.10.2 + torch 2.8.0+cu128 + transformers<5 + morpheus[openai,anthropic,dev]
-source .venv/bin/activate
+bash scripts/install_pinned.sh        # vllm 0.10.2 + torch 2.8.0+cu128 + transformers<5
+                                      #  + morpheus[openai,anthropic,dev,jepa] + tau2-bench[gym]
+source /root/.venv-morpheus/bin/activate
 ```
+
+> **Où atterrit le venv, et pourquoi pas dans le dépôt.** `/workspace` est un volume réseau
+> PERSISTANT mais **sous quota : 30,6 Gio, mesuré au `dd` le 2026-07-16** (`df` y annonce
+> 756 Tio — la taille du cluster, pas la vôtre). Le venv pèse **9,4 Go** et il reste ~0,8 Go :
+> il n'y rentre pas, et `python3 -m venv .venv` échoue en `Errno 122` **à mi-install**.
+> Défaut : `/root/.venv-morpheus` (overlay 50 Go, sans quota) — surchargeable par `VENV_DIR`,
+> et le script REFUSE un `VENV_DIR` sous `/workspace`. Idem `PIP_CACHE_DIR`.
+> **Contrepartie assumée** : `/root` est éphémère ⇒ venv à refaire après un restart de
+> conteneur (~10 min, cache pip chaud). Les 19 Go de poids, eux, sont sur `/workspace` et ne
+> se re-téléchargent jamais. Détails et méthode de mesure : `TODO.md` §7.
 
 **Pourquoi figée** (pièges déjà payés — cf. `TODO.md` §Journal 1-2) :
 - `vllm>=0.6.0` tire vLLM 0.25 → torch **cu130** → crash « NVIDIA driver too old ». On épingle
@@ -61,7 +72,7 @@ Choix du modèle selon la VRAM (le script force les kernels **marlin**, ×9 vs l
 ## 4. Valider le LLM (terminal 2)
 
 ```bash
-source .venv/bin/activate
+source /root/.venv-morpheus/bin/activate
 morpheus check-llm --config configs/qwen_local.yaml           # doit finir par "OUI ✅"
 ```
 

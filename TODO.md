@@ -8,8 +8,9 @@
 ```bash
 git clone https://github.com/ichiriac/morpheus.git && cd morpheus
 bash scripts/install_pinned.sh               # pile FIGÉE (vllm 0.10.2 + torch cu128 + transformers<5)
-                                             # ⚠️ PAS runpod_setup.sh (vllm>=0.6.0 → torch cu130, casse : cf. Journal §1)
-source .venv/bin/activate
+                                             # venv → /root/.venv-morpheus : HORS QUOTA (Journal §7).
+                                             # runpod_setup.sh y délègue désormais.
+source /root/.venv-morpheus/bin/activate
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader   # ← choisir la quant selon la VRAM
 ```
 
@@ -214,17 +215,48 @@ Le pod A40 d'origine avait un **driver CUDA 12.8** (`nvidia-smi` → 570.211.01)
    dans `scripts/serve_qwen_vllm.sh`** → `awq_marlin` (~27 tok/s, ×9). Idem GPTQ → `gptq_marlin`.
 4. **Cache HF** : `HF_HOME=/workspace/.hf-cache` (volume PERSISTANT) est maintenant gravé dans le
    script. Sinon HF retombe sur l'overlay `/` éphémère et **re-télécharge 19 Go** à chaque restart.
-   Le `.venv` et les poids (19 Go) sont sur `/workspace` → un restart ne re-télécharge RIEN.
-5. **Redémarrer le serveur demain** (download-free, ~1 min de load + CUDA graphs) :
+   Les poids (19 Go) sont sur `/workspace` → un restart ne re-télécharge RIEN.
+   ⚠️ **Le `.venv`, LUI, N'EST PAS sur `/workspace`** — il ne peut pas y être (§7). Cette ligne a
+   longtemps affirmé le contraire ; c'était faux, et ça a fait chercher une panne de restart là
+   où il y avait une panne de quota.
+5. **Redémarrer le serveur** (download-free, ~1 min de load + CUDA graphs) :
    ```bash
-   cd /workspace/morpheus && source .venv/bin/activate
+   cd /workspace/morpheus && source /root/.venv-morpheus/bin/activate   # venv HORS quota (§7)
    MODEL=Qwen/Qwen3-32B-AWQ bash scripts/serve_qwen_vllm.sh        # HF_HOME + marlin déjà gérés
    ```
+   Si le conteneur a redémarré, le venv a disparu (il est sur l'éphémère) : `bash
+   scripts/install_pinned.sh` d'abord (~10 min). Les 19 Go, eux, sont toujours là.
 6. **Coût du world-model** : ~35 appels LLM/tour (k=4 × horizon=3). ⇒ était **~3 min/tour** en
    série. **CORRIGÉ depuis** : `orchestrator.concurrency>1` lance les K rollouts en parallèle
    (vLLM batche) + `rollout` réutilise le ŝ' (un `predict`/tour en moins). Config rapide de
    sanity : `configs/qwen_mock_fast.yaml`. Flags : `--k --horizon --concurrency`. Le vrai run
    se fera sur τ²-bench (avec `concurrency: 8` dans `qwen_local.yaml`), pas sur le mock.
+7. **QUOTA `/workspace` — plafond MESURÉ le 2026-07-16 : `31376 Mio ≈ 30,6 Gio`** (~33 Go déc.).
+   **Méthode** : chunks `dd` jusqu'à `Disk quota exceeded`, deux granularités concordantes
+   (1 Gio, puis 64 Mio). À re-mesurer si le volume est reprovisionné — et à ne JAMAIS citer de
+   mémoire : le nombre « 10 Go » a traîné dans 2 fichiers sans avoir jamais été mesuré, et il
+   était faux (le seul `.hf-cache` en pèse 19).
+   **`df` et `statvfs` sont INUTILISABLES ici** : ils annoncent 756 Tio, la taille du cluster
+   MooseFS, pas la part du pod. Pas de binaire `mfs*`, pas de `getfattr`, `fallocate` non
+   supporté. La mesure empirique est la seule.
+   **Conséquence** : le venv (**9,4 Go**) NE RENTRE PAS. Occupation ~29,9/30,6 Gio ⇒ ~0,8 Go
+   libres. `python3 -m venv .venv` depuis le dépôt échoue en `Errno 122` **à mi-install, après
+   plusieurs minutes de download**. Les deux scripts d'install avaient ce bug.
+   ⇒ **Layout** : `/workspace` (persistant, sous quota) = dépôt + données + poids HF + tau2-bench.
+   `/root` (overlay 50 Go, éphémère, sans quota) = venv + cache pip. `VENV_DIR` surchargeable,
+   défaut `/root/.venv-morpheus` ; `install_pinned.sh` REFUSE un `VENV_DIR` sous `/workspace`.
+   ⚠️ `PIP_CACHE_DIR` aussi doit rester hors quota : une seule install ratée y a gonflé
+   `/workspace/.pip-cache` de 1,4 à 6,8 Go.
+8. **`set -o pipefail` dans tout script d'install.** Sans lui, `bash install.sh | tee log` renvoie
+   le code de `tee` : un `Disk quota exceeded` en pleine install ressort en **exit 0**. C'est
+   comme ça que le bug de quota est passé pour un succès. Cousin shell du 404 silencieux.
+   Corollaire : **ne jamais conclure d'un code retour** — exercer la pile (`import vllm, torch`,
+   `torch.cuda.is_available()`), ce que fait maintenant la vérif finale d'`install_pinned.sh`.
+9. **`[jepa]` n'est pas optionnel pour le banc.** `eval/runner.py:86` construit le
+   `JepaWorldModel` dès que `jepa_wm.enabled` — **y compris sous `--no-world-model`**. Sans
+   sentence-transformers (extra `[jepa]`), le banc canonique crashe à la 45e seconde.
+   Idem `tau2-bench[gym]` : `tau2.registry` importe `gymnasium` sans condition.
+   Les deux sont désormais dans `install_pinned.sh`.
 
 `scripts/serve_qwen_vllm.sh` (marlin + HF_HOME) est **déjà commité** (`006abf5`). Reste juste ce
 `TODO.md` à committer.
