@@ -45,7 +45,64 @@ Journal cumulatif (une ligne par run). La métrique qui tranche = réussite **vs
 | 2026-07-13 18:08 | `jepa_wm_tau2` | mock/retail | — | world-model | `stub` | 3/1/8 | 3 | 0.0% | 4:0%(n1) · 8:0%(n1) · 12:0%(n1) |
 | 2026-07-15 20:26 | `retail_attrib` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 3 | 0.0% — **DB=0 / NL=1.0**, ATTRIBUÉ ✅ | 5:0%(n2) · 11:0%(n1) |
 | 2026-07-15 20:44 | `retail_cap2500` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 3 | 0.0% | 5:0%(n2) · 11:0%(n1) |
+| 2026-07-16 19:58 | `retail74_baseline_run2` | tau2/retail | user-sim | baseline | `Qwen/Qwen3-32B-AWQ` | 4/1/16 | 74 | 28.4% | 0:100%(n1) · 1:36%(n14) · 2:9%(n11) · 3:17%(n6) · 4:50%(n2) · 5:40%(n10) · 6:33%(n15) · 7:50%(n4) · 8:50%(n2) · 10:0%(n4) · 12:0%(n2) · 13:0%(n3) |
 <!-- BENCH:APPEND -->
+
+> ### 🚧 `retail74_baseline_run2` — LE BANC EST TROP PETIT POUR L'A/B QU'IL DOIT ARBITRER (2026-07-16)
+>
+> Le run complet des 74 donne enfin une **baseline à n=74 : 21/74 = 28,4 %, IC 95 % de Wilson
+> [19,4 % – 39,5 %]** (±10,1 pts). Elle remplace le « 30 % » qui circulait : c'était 9/30 sur un
+> snapshot partiel — juste par chance, mais estimé sur 30 tâches.
+>
+> **Le chiffre qui compte est ailleurs.** Deux runs du **même bras** (baseline, même config, même
+> pile figée, même seed, `temperature: 0.7`) sur les **39 tâches en recouvrement** :
+>
+> | | succès | taux |
+> |---|---|---|
+> | `retail74_baseline` (2026-07-15, partiel) | 10/39 | 25,6 % |
+> | `retail74_baseline_run2` (2026-07-16) | 12/39 | 30,8 % |
+> | | | **écart net 5,1 pts** |
+>
+> L'écart net est **trompeur** : c'est le solde de **10 basculements qui se compensent** (6
+> échec→succès, 4 succès→échec). **La vraie instabilité est de 26 %** — un quart des tâches change
+> de verdict sans qu'on ait touché à rien. Contrôle : McNemar sur ces deux runs du même bras donne
+> p=0,754, non significatif — c'est bien le même bras, la mesure n'est pas polluée par un facteur
+> caché.
+>
+> **Conséquence — l'A/B baseline-vs-world-model est aveugle sous ~15 points :**
+>
+> | banc | écart net minimal détectable (McNemar apparié, 5 %) |
+> |---|---|
+> | 74 (sans juge) | **14,9 pts** |
+> | 114 (retail complet) | 11,4 pts |
+>
+> | gain à détecter | tâches requises | |
+> |---|---|---|
+> | 5 pts | ~395 | hors d'atteinte sur retail |
+> | 10 pts | ~99 | ne tient pas dans 74 ; tient dans 114 |
+> | 15 pts | ~44 | ✓ |
+>
+> L'appariement ne sauve rien (~15 pts contre ~14 en non apparié) : quand 26 % des tâches
+> basculent d'elles-mêmes, le test dépense sa puissance à trier ce bruit. Avec une baseline à
+> 28 %, il faudrait que le world-model atteigne **~43 %** pour que le banc puisse le voir. Un gain
+> réel de 5 points resterait invisible, et le banc ne saurait pas distinguer ce succès d'un échec.
+>
+> ⇒ **morpheus a besoin d'un banc plus discriminant AVANT d'avoir besoin d'une meilleure
+> architecture.** Toute mesure d'archi prise ici est ininterprétable sous 15 points.
+>
+> **Mais la variance mesurée vient de `policy.temperature: 0.7` — ce n'est PAS du bruit
+> irréductible.** Trois leviers, et « plus de tâches » est le plus cher :
+> - **température → 0** : politique déterministe, la variance run-à-run s'effondre ; le banc de 74
+>   retrouve de la puissance sans une tâche de plus. Contrepartie : moins d'exploration, peut-être
+>   moins de succès. **Coût pour le savoir : 1 run (~1h50).** À faire en premier.
+> - **K runs répétés** : divise l'erreur par √K. 5 runs ≈ 370 tâches-runs ≈ seuil ~5-7 pts, pour
+>   ~9 h de GPU et zéro tâche à construire ni valider.
+> - **plus de tâches** : borné par le domaine (retail = 114), donc impose le multi-domaine.
+>
+> Reproduire : `python scripts/measure_run_variance.py runs/retail74_baseline runs/retail74_baseline_run2`
+>
+> ⚠️ Les DEUX runs sont versionnés et doivent le rester : c'est leur **paire** qui est la mesure.
+> Rejouer ne la restaure pas — à temperature 0.7 on obtient un 3e tirage, pas celui-ci.
 
 > ### `retail_attrib` — le premier 0% ATTRIBUABLE (smoke d'attribution, 3 tâches)
 >

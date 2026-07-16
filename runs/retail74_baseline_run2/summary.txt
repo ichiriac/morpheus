@@ -1,0 +1,14 @@
+Réussite vs nombre de tours (bucket = longueur de référence de la tâche) :
+    0 tours | 100.0% | n=1   ####################
+    1 tours | 35.7% | n=14  #######
+    2 tours |  9.1% | n=11  ##
+    3 tours | 16.7% | n=6   ###
+    4 tours | 50.0% | n=2   ##########
+    5 tours | 40.0% | n=10  ########
+    6 tours | 33.3% | n=15  #######
+    7 tours | 50.0% | n=4   ##########
+    8 tours | 50.0% | n=2   ##########
+   10 tours |  0.0% | n=4   
+   12 tours |  0.0% | n=2   
+   13 tours |  0.0% | n=3   
+  Global    | 28.4% | n=74

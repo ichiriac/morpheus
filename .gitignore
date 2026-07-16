@@ -54,6 +54,15 @@ checkpoints/*
 # les chiffres du TODO deviennent invérifiables. ~700 Ko.
 !runs/retail74_baseline/
 !runs/retail74_baseline/*.jsonl
+# Run baseline retail74 COMPLET (74 ép., 28,4 %, 2026-07-16) : le second tirage du MÊME bras.
+# NON régénérable et IRREMPLAÇABLE — pas pour son 28,4 % (une autre estimation ponctuelle
+# ferait l'affaire) mais parce que la PAIRE (retail74_baseline, retail74_baseline_run2) sur les
+# 39 tâches en recouvrement EST la mesure de variance run-à-run : 26 % de basculements, d'où
+# l'écart net minimal détectable de 14,9 pts à n=74. Perdre l'un des deux fichiers détruit la
+# mesure — et rejouer ne la restaure PAS : à temperature 0.7 on obtiendrait un 3e tirage, pas
+# celui-ci. Instrument : scripts/measure_run_variance.py. ~1,4 Mo.
+!runs/retail74_baseline_run2/
+!runs/retail74_baseline_run2/*.jsonl
 
 # Secrets
 .env
